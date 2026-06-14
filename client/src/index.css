@@ -1,0 +1,230 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Design tokens — Light theme (default) ── */
+:root {
+  --bg:            #F4F1EF;
+  --card:          #ffffff;
+  --text:          #1A1A1A;
+  --muted:         #6B7280;
+  --primary:       #6B0F2A;
+  --primary-hover: #8B1A3A;
+  --primary-dark:  #4A0A1D;
+  --blush:         #E8A4AF;
+  --border:        #E5E7EB;  /* gray-200 equivalent */
+  --accent:        #E8A4AF;
+}
+
+/* ── Design tokens — Dark theme ── */
+/* Applied when <html class="dark"> is present (set by src/utils/theme.js) */
+.dark {
+  --bg:            #0B0F14;
+  --card:          #121821;
+  --text:          #E6EDF3;
+  --muted:         #9AA4B2;
+  --primary:       #8B1A3A;
+  --primary-hover: #A8324F;
+  --primary-dark:  #5A0F25;
+  --blush:         #E8A4AF;
+  --border:        #1F2937;
+  --accent:        #E8A4AF;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    font-family: 'Sora', ui-sans-serif, system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    color: var(--text);
+    background-color: var(--bg);
+  }
+
+  /* Better focus rings globally */
+  :focus-visible {
+    outline: 2px solid rgba(107, 15, 42, 0.4);
+    outline-offset: 2px;
+  }
+
+  /* Smooth scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(107, 15, 42, 0.2);
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(107, 15, 42, 0.35);
+  }
+}
+
+@layer utilities {
+  /* ── Typography ── */
+  .nav-brand {
+    font-family: 'Sora', sans-serif;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  .nav-link {
+    font-family: 'Sora', sans-serif;
+    font-weight: 500;
+  }
+
+  .landing-heading {
+    font-family: 'Playfair Display', Georgia, 'Times New Roman', serif;
+    letter-spacing: -0.01em;
+  }
+
+  .auth-heading {
+    font-family: 'Sora', sans-serif;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+
+  /* ── Section spacing helpers ── */
+  .section-pad {
+    @apply py-16 md:py-20;
+  }
+
+  .section-pad-sm {
+    @apply py-10 md:py-14;
+  }
+
+  /* ── Card base ── */
+  .card {
+    @apply bg-card rounded-2xl border border-border;
+  }
+  .card-shadow {
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
+  }
+
+  .card-shadow-hover {
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  }
+
+  /* ── Buttons ── */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2
+      px-6 py-3 rounded-xl
+      bg-primary hover:bg-primary-hover
+      text-white text-sm font-bold
+      transition-all duration-200
+      hover:-translate-y-0.5
+      shadow-md
+      focus:outline-none focus:ring-2 focus:ring-primary/30
+      disabled:opacity-60 disabled:cursor-not-allowed disabled:translate-y-0;
+    box-shadow: 0 4px 14px rgba(107, 15, 42, 0.22);
+  }
+
+  /* ── Section label pill ── */
+  .section-label {
+    @apply inline-block px-3 py-1 rounded-full
+      bg-primary/8 text-primary
+      text-xs font-semibold uppercase tracking-widest
+      mb-4;
+  }
+
+  /* ── Input base ── */
+  .input-base {
+    @apply w-full px-4 py-3 rounded-xl border border-border text-sm
+      text-text bg-bg hover:bg-card
+      placeholder:text-muted
+      focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50
+      transition-all duration-200;
+  }
+
+  /* ── Page hero banner ── */
+  .page-hero {
+    @apply bg-primary text-white;
+  }
+
+  /* ── Fade-in animation for modals / dropdowns ── */
+  .animate-in {
+    animation: fadeInUp 0.18s ease-out forwards;
+  }
+
+  /* ── Subtle shimmer for skeletons ── */
+  .shimmer {
+    background: linear-gradient(
+      90deg,
+      rgba(0,0,0,0.04) 25%,
+      rgba(0,0,0,0.07) 50%,
+      rgba(0,0,0,0.04) 75%
+    );
+    background-size: 400% 100%;
+    animation: shimmer 1.4s ease-in-out infinite;
+  }
+}
+
+/* ── Keyframes ── */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes shimmer {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+/* ── Sonner toast: non-blocking container ──────────────────────────────────
+   The toaster section sits over the UI but must not swallow pointer events.
+   Only the individual toast cards intercept clicks (X button, links, etc.)
+   ──────────────────────────────────────────────────────────────────────── */
+[data-sonner-toaster] {
+  pointer-events: none !important;
+}
+[data-sonner-toast] {
+  pointer-events: auto !important;
+}
+
+/* ── Close button polish ── */
+[data-sonner-toast] [data-close-button] {
+  top: 8px !important;
+  right: 8px !important;
+  left: auto !important;
+  background: rgba(255,255,255,0.10) !important;
+  border: 1px solid rgba(255,255,255,0.10) !important;
+  border-radius: 6px !important;
+  color: rgba(255,255,255,0.70) !important;
+  width: 20px !important;
+  height: 20px !important;
+  transition: background 0.15s, color 0.15s;
+}
+[data-sonner-toast] [data-close-button]:hover {
+  background: rgba(255,255,255,0.20) !important;
+  color: rgba(255,255,255,0.95) !important;
+}
+
+/* ── Mobile: full-width toasts at bottom ── */
+@media (max-width: 480px) {
+  [data-sonner-toaster] {
+    inset: auto 0 env(safe-area-inset-bottom,12px) 0 !important;
+    left: 12px !important;
+    right: 12px !important;
+    width: auto !important;
+  }
+  [data-sonner-toast] {
+    width: 100% !important;
+  }
+}

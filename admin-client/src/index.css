@@ -1,0 +1,170 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Design tokens ── */
+:root {
+  --bg:             #F4F1EF;
+  --card:           #ffffff;
+  --text:           #1A1A1A;
+  --muted:          #6B7280;
+
+  /* Hex vars — used in plain CSS (box-shadow, rgba(), etc.) */
+  --primary:        #6B0F2A;
+  --primary-hover:  #8B1A3A;
+  --primary-dark:   #4A0A1D;
+  --primary-deeper: #3D0817;
+  --blush:          #E8A4AF;
+
+  /* RGB channel vars — used by tailwind.config.js with <alpha-value>
+     so that opacity modifiers like /20 /30 /50 work correctly         */
+  --primary-rgb:        107 15 42;
+  --primary-hover-rgb:  139 26 58;
+  --primary-dark-rgb:   74 10 29;
+  --primary-deeper-rgb: 61 8 23;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    font-family: 'Sora', ui-sans-serif, system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    color: var(--text);
+    background-color: var(--bg);
+    margin: 0;
+  }
+
+  :focus-visible {
+    outline: 2px solid rgba(107, 15, 42, 0.4);
+    outline-offset: 2px;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(107, 15, 42, 0.2);
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(107, 15, 42, 0.35);
+  }
+}
+
+@layer utilities {
+  /* ── Sidebar scrollbar (dark) ── */
+  .sidebar-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .sidebar-scroll::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.1);
+    border-radius: 999px;
+  }
+
+  /* ── Admin card ── */
+  .admin-card {
+    @apply bg-card rounded-2xl border border-gray-100;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
+  }
+
+  /* ── Primary button ── */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2
+      px-5 py-2.5 rounded-xl
+      bg-primary hover:bg-primary-hover
+      text-white text-sm font-semibold
+      transition-all duration-200
+      hover:-translate-y-0.5
+      focus:outline-none focus:ring-2 focus:ring-primary/30
+      disabled:opacity-60 disabled:cursor-not-allowed disabled:translate-y-0;
+    box-shadow: 0 4px 14px rgba(107, 15, 42, 0.22);
+  }
+
+  /* ── Ghost/secondary button ── */
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2
+      px-5 py-2.5 rounded-xl
+      bg-card border border-gray-200
+      text-gray-600 hover:text-primary hover:border-primary/30
+      text-sm font-medium
+      transition-all duration-200
+      focus:outline-none;
+  }
+
+  /* ── Input ── */
+  .input-base {
+    @apply w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm
+      text-text bg-gray-50 hover:bg-card placeholder:text-muted
+      focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50
+      transition-all duration-200;
+  }
+
+  /* ── Section heading ── */
+  .section-label {
+    @apply text-xs font-semibold uppercase tracking-widest text-primary/60;
+  }
+
+  /* ── Fade-in ── */
+  .animate-in {
+    animation: fadeInUp 0.18s ease-out forwards;
+  }
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Sonner toast: non-blocking container ──────────────────────────────────
+   The toaster section sits over the UI but must not swallow pointer events.
+   Only the individual toast cards intercept clicks (X button, links, etc.)
+   ──────────────────────────────────────────────────────────────────────── */
+[data-sonner-toaster] {
+  pointer-events: none !important;
+}
+[data-sonner-toast] {
+  pointer-events: auto !important;
+}
+
+/* ── Close button polish ── */
+[data-sonner-toast] [data-close-button] {
+  top: 8px !important;
+  right: 8px !important;
+  left: auto !important;
+  background: rgba(255,255,255,0.10) !important;
+  border: 1px solid rgba(255,255,255,0.10) !important;
+  border-radius: 6px !important;
+  color: rgba(255,255,255,0.70) !important;
+  width: 20px !important;
+  height: 20px !important;
+  transition: background 0.15s, color 0.15s;
+}
+[data-sonner-toast] [data-close-button]:hover {
+  background: rgba(255,255,255,0.20) !important;
+  color: rgba(255,255,255,0.95) !important;
+}
+
+/* ── Mobile: full-width toasts at bottom ── */
+@media (max-width: 480px) {
+  [data-sonner-toaster] {
+    inset: auto 0 env(safe-area-inset-bottom,12px) 0 !important;
+    left: 12px !important;
+    right: 12px !important;
+    width: auto !important;
+  }
+  [data-sonner-toast] {
+    width: 100% !important;
+  }
+}

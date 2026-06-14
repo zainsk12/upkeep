@@ -1,0 +1,15 @@
+# ── Environment ───────────────────────────────────────────────────────────────
+# NEVER commit .env — it contains real secrets (JWT_SECRET, API keys, DB URI).
+# Copy .env.example to .env and fill in your own values.
+.env
+
+# ── Dependencies ───────────────────────────────────────────────────────────────
+node_modules/
+
+# ── Logs ───────────────────────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+
+# ── OS ─────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
