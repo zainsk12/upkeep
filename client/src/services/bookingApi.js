@@ -6,13 +6,10 @@ export const createBooking = (data) =>
 export const getMyBookings = () =>
   api.get("/api/bookings/my");
 
-// Send OTP for quotation confirmation
-export const sendConfirmationOTP = (id) =>
-  api.post(`/api/bookings/${id}/send-confirmation-otp`);
-
-// Verify OTP and confirm booking
-export const verifyConfirmationOTP = (id, otp) =>
-  api.post(`/api/bookings/${id}/verify-confirmation-otp`, { otp });
+// Accept quotation → confirm booking. Requires a reCAPTCHA v3 token
+// (action: "confirm_booking"), verified server-side before confirming.
+export const confirmBooking = (id, recaptchaToken) =>
+  api.post(`/api/bookings/${id}/confirm`, { recaptchaToken });
 
 // Reject quotation
 export const rejectBooking = (id) =>

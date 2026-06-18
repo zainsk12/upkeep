@@ -87,10 +87,10 @@ export default function LoginPage() {
         <img src="/hero.jpg" alt="" className="absolute inset-0 w-full h-full object-cover" />
         <div
           className="absolute inset-0"
-          style={{ background: "linear-gradient(160deg, rgba(107,15,42,0.82) 0%, rgba(20,5,10,0.88) 100%)", backdropFilter: "blur(1px)" }}
+          style={{ background: "linear-gradient(160deg, rgba(8,53,74,0.90) 0%, rgba(5,15,25,0.88) 100%)", backdropFilter: "blur(1px)" }}
         />
         <div className="relative h-full flex flex-col items-center justify-center p-12 text-center">
-          <img src="/logo.jpg" alt="Austrum" className="w-24 h-24 rounded-full object-cover border-4 border-blush/35 shadow-2xl mb-8" />
+          <img src="/upkeep_logo.png" alt="UpKeep by Austrum" className="w-24 h-24 rounded-full object-cover border-4 border-blush/35 shadow-2xl mb-8" />
           <h2 className="text-4xl font-bold text-white mb-3 auth-heading">Welcome Back</h2>
           <p className="text-white/55 text-base leading-relaxed max-w-xs mb-10">
             Sign in to manage your bookings and services.
@@ -112,7 +112,7 @@ export default function LoginPage() {
         {/* Mobile background */}
         <div className="absolute inset-0 lg:hidden">
           <img src="/hero.jpg" alt="" className="w-full h-full object-cover" />
-          <div className="absolute inset-0" style={{ background: "linear-gradient(160deg, rgba(107,15,42,0.88) 0%, rgba(20,5,10,0.92) 100%)" }} />
+          <div className="absolute inset-0" style={{ background: "linear-gradient(160deg, rgba(8,53,74,0.93) 0%, rgba(5,15,25,0.92) 100%)" }} />
         </div>
 
         {/* Form card */}
@@ -124,9 +124,9 @@ export default function LoginPage() {
 
           {/* Mobile branding */}
           <div className="lg:hidden text-center mb-7">
-            <img src="/logo.jpg" alt="Austrum" className="w-16 h-16 rounded-full object-cover border-2 border-blush/50 shadow-lg shadow-primary/40 mx-auto mb-3" />
+            <img src="/upkeep_logo.png" alt="UpKeep by Austrum" className="w-16 h-16 rounded-full object-cover border-2 border-blush/50 shadow-lg shadow-primary/40 mx-auto mb-3" />
             <p className="text-white/50 text-xs font-semibold uppercase tracking-widest">
-              Nashik's Trusted Home Services
+              UpKeep — Nashik's Trusted Home Services
             </p>
           </div>
 

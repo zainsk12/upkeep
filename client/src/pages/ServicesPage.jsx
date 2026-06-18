@@ -174,10 +174,10 @@ function BookingModal({ service, timeSlots, onClose }) {
     >
       <div className="bg-card w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-2xl
         overflow-hidden max-h-[95vh] sm:max-h-[90vh] flex flex-col"
-        style={{ boxShadow: "0 24px 64px rgba(107,15,42,0.20), 0 4px 16px rgba(0,0,0,0.08)" }}>
+        style={{ boxShadow: "0 24px 64px rgba(8,53,74,0.18), 0 4px 16px rgba(0,0,0,0.08)" }}>
 
         {/* Header */}
-        <div className="bg-primary px-5 sm:px-6 py-4 sm:py-5 flex items-center justify-between flex-shrink-0">
+        <div className="bg-primary dark:bg-primary-dark px-5 sm:px-6 py-4 sm:py-5 flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-3">
             <div className={`w-10 h-10 rounded-xl ${bg} flex items-center justify-center flex-shrink-0`}>
               <Icon size={20} className={color} strokeWidth={2} />
@@ -382,8 +382,8 @@ function ServiceCard({ service, onBook }) {
   return (
     <div className={`bg-card rounded-2xl border overflow-hidden flex flex-col gap-0
          transition-all duration-300 group
-         ${disabled ? "border-border opacity-60" : "border-border hover:shadow-xl hover:shadow-black/20 hover:-translate-y-1.5"}`}
-      style={{ boxShadow: disabled ? "none" : "0 2px 12px rgba(0,0,0,0.05)" }}>
+         ${disabled ? "border-border opacity-60" : "border-border hover:shadow-xl hover:shadow-primary/[0.12] hover:-translate-y-1.5 hover:border-primary/15"}`}
+      style={{ boxShadow: disabled ? "none" : "0 2px 12px rgba(8,53,74,0.06)" }}>
 
       <div className="p-6 flex flex-col gap-4 flex-1">
         <div className={`w-12 h-12 rounded-2xl ${bg} ${border} border
@@ -465,7 +465,7 @@ export default function ServicesPage() {
   return (
     <div className="min-h-screen bg-bg">
       {/* Hero banner */}
-      <div className="bg-primary text-white">
+      <div className="bg-primary dark:bg-primary-dark text-white">
         <div className="max-w-7xl mx-auto px-5 lg:px-8 py-12 md:py-16">
           <p className="text-blush text-xs font-semibold uppercase tracking-widest mb-3">What we offer</p>
           <h1 className="landing-heading text-3xl md:text-4xl lg:text-5xl font-bold leading-tight mb-4">Our Services</h1>

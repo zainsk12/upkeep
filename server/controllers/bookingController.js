@@ -4,11 +4,9 @@ const Booking  = require("../models/Booking");
 const Service  = require("../models/Service");
 const Settings = require("../models/Settings");
 const { validateBookingDateTime } = require("../utils/bookingValidation"); // ← MODULE 2
-const {
-  sendQuotationConfirmOTP,
-  verifyQuotationConfirmOTP,
-  normalizePhone,
-} = require("../services/otpService");
+const { generateUniqueBookingId } = require("../utils/bookingId");
+const { verifyRecaptcha } = require("../services/recaptchaService");
+const { sendBookingConfirmationEmail } = require("../services/emailService");
 
 // ── POST /api/bookings ─────────────────────────────────────────────────────────
 const createBooking = async (req, res) => {
@@ -57,7 +55,11 @@ const createBooking = async (req, res) => {
     }
     // ────────────────────────────────────────────────────────────────────────
 
+    // Generate a unique, human-readable booking reference (e.g. UPK-20260617-7F3K9)
+    const bookingId = await generateUniqueBookingId(Booking);
+
     const booking = await Booking.create({
+      bookingId,
       userId: req.user._id,
       service,
       date: new Date(date),
@@ -88,58 +90,15 @@ const getMyBookings = async (req, res) => {
   }
 };
 
-// ── POST /api/bookings/:id/send-confirmation-otp ───────────────────────────────
-// Step 1 of the new quotation acceptance flow.
-// User clicks "Accept" → we send an OTP to their registered phone.
-const sendConfirmationOTP = async (req, res) => {
+// ── POST /api/bookings/:id/confirm ──────────────────────────────────────────────
+// Quotation acceptance flow (reCAPTCHA-protected, no OTP).
+// User clicks "Accept Quote / Confirm Booking" → client runs reCAPTCHA v3 and
+// sends the token. We verify it server-side:
+//   • success → status becomes "confirmed" + confirmation email is sent
+//   • failure → status stays "awaiting_user_confirmation", no email, error returned
+const confirmBooking = async (req, res) => {
   try {
-    const booking = await Booking.findById(req.params.id);
-    if (!booking) return res.status(404).json({ message: "Booking not found." });
-
-    // Ownership check
-    if (booking.userId.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ message: "Not authorised." });
-    }
-
-    // Only bookings awaiting user confirmation can trigger an OTP
-    if (booking.status !== "awaiting_user_confirmation") {
-      return res.status(400).json({
-        message: "This booking is not awaiting your confirmation.",
-      });
-    }
-
-    // Resolve the phone to send OTP to: booking phone → user phone (fallback)
-    const rawPhone = booking.phone || req.user.phone;
-    if (!rawPhone) {
-      return res.status(400).json({
-        message: "No phone number found. Please update your profile.",
-      });
-    }
-
-    await sendQuotationConfirmOTP(rawPhone, booking._id, req.user._id);
-
-    const maskedPhone = normalizePhone(rawPhone).replace(/(\d{2})\d{6}(\d{2})/, "$1******$2");
-
-    res.json({
-      message: `OTP sent to +91${maskedPhone}. Valid for 10 minutes.`,
-      phone:   maskedPhone,
-    });
-  } catch (err) {
-    console.error("sendConfirmationOTP error:", err.message);
-    res.status(500).json({ message: "Failed to send OTP. Please try again." });
-  }
-};
-
-// ── POST /api/bookings/:id/verify-confirmation-otp ────────────────────────────
-// Step 2 of the new quotation acceptance flow.
-// User submits the OTP → we verify and, on success, mark booking as confirmed.
-const verifyConfirmationOTP = async (req, res) => {
-  try {
-    const { otp } = req.body;
-
-    if (!otp || String(otp).trim().length !== 6) {
-      return res.status(400).json({ message: "A valid 6-digit OTP is required." });
-    }
+    const { recaptchaToken } = req.body;
 
     const booking = await Booking.findById(req.params.id);
     if (!booking) return res.status(404).json({ message: "Booking not found." });
@@ -149,7 +108,7 @@ const verifyConfirmationOTP = async (req, res) => {
       return res.status(403).json({ message: "Not authorised." });
     }
 
-    // Idempotency guards
+    // Idempotency / status guards
     if (booking.status === "confirmed") {
       return res.status(400).json({ message: "Booking is already confirmed." });
     }
@@ -162,27 +121,38 @@ const verifyConfirmationOTP = async (req, res) => {
       });
     }
 
-    // Resolve phone (same logic as sendConfirmationOTP)
-    const rawPhone = booking.phone || req.user.phone;
-
-    const result = await verifyQuotationConfirmOTP(
-      rawPhone,
-      String(otp).trim(),
-      booking._id,
-      req.user._id
+    // ── reCAPTCHA verification (gate) ─────────────────────────────────────────
+    const captcha = await verifyRecaptcha(
+      recaptchaToken,
+      "confirm_booking",
+      req.ip
     );
-
-    if (!result.success) {
-      return res.status(400).json({ message: result.reason });
+    if (!captcha.success) {
+      // Leave the booking untouched — do NOT confirm, do NOT email.
+      return res.status(400).json({
+        message: captcha.reason || "Verification failed. Please try again.",
+      });
     }
 
-    // ✅ OTP verified — confirm the booking
+    // ✅ Verified — confirm the booking
     booking.status = "confirmed";
     await booking.save();
 
+    // Send confirmation email (best-effort: a mail failure must not un-confirm
+    // the booking the user just successfully confirmed). req.user is the full
+    // User document (name + email) from the auth middleware.
+    try {
+      await sendBookingConfirmationEmail(
+        { name: req.user.name, email: req.user.email },
+        booking
+      );
+    } catch (mailErr) {
+      console.error("Booking confirmed but email failed:", mailErr.message);
+    }
+
     res.json({ message: "Booking confirmed successfully!", booking });
   } catch (err) {
-    console.error("verifyConfirmationOTP error:", err.message);
+    console.error("confirmBooking error:", err.message);
     res.status(500).json({ message: "Server error. Please try again." });
   }
 };
@@ -291,8 +261,7 @@ const rescheduleBooking = async (req, res) => {
 module.exports = {
   createBooking,
   getMyBookings,
-  sendConfirmationOTP,
-  verifyConfirmationOTP,
+  confirmBooking,
   rejectBooking,
   rescheduleBooking,
 };

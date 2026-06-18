@@ -23,6 +23,10 @@ export const fetchAllReviews = ({ page = 1, limit = 12, sort = "newest" } = {}) 
 export const fetchLatestReviews = () =>
   api.get("/api/reviews/latest").then((r) => r.data.reviews);
 
+/** Fetch aggregate stats — averageRating (1 dp) + totalReviews count (public). */
+export const fetchReviewStats = () =>
+  api.get("/api/reviews/stats").then((r) => r.data);
+
 /** Fetch bookingIds already reviewed by the logged-in user (auth required). */
 export const fetchMyReviewedBookingIds = () =>
   api.get("/api/reviews/my-reviewed-bookings").then((r) => r.data.bookingIds);

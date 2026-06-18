@@ -154,10 +154,10 @@ export default function RescheduleModal({ booking, onClose, onSuccess }) {
     >
       <div
         className="bg-card w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col"
-        style={{ boxShadow: "0 24px 64px rgba(107,15,42,0.20), 0 4px 16px rgba(0,0,0,0.10)" }}
+        style={{ boxShadow: "0 24px 64px rgba(8,53,74,0.18), 0 4px 16px rgba(0,0,0,0.08)" }}
       >
         {/* Header */}
-        <div className="bg-primary px-5 sm:px-6 py-4 sm:py-5 flex items-center justify-between flex-shrink-0">
+        <div className="bg-primary dark:bg-primary-dark px-5 sm:px-6 py-4 sm:py-5 flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center flex-shrink-0">
               <CalendarClock size={18} className="text-white" />

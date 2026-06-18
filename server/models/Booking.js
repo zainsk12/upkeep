@@ -36,6 +36,16 @@ const assignedWorkerSchema = new mongoose.Schema(
 
 const bookingSchema = new mongoose.Schema(
   {
+    // ── Public booking reference ────────────────────────────────────────────────
+    // Human-readable unique ID generated on creation, e.g. "UPK-20260617-7F3K9".
+    // Used in confirmation emails and customer communication.
+    // Indexed as unique + sparse via schema.index() below — sparse so legacy
+    // bookings that predate this field (bookingId = null) don't collide.
+    bookingId: {
+      type: String,
+      trim: true,
+    },
+
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -126,6 +136,10 @@ const bookingSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+// Unique + sparse index on the public booking reference. Sparse allows the
+// multiple null bookingIds on legacy records while keeping new IDs unique.
+bookingSchema.index({ bookingId: 1 }, { unique: true, sparse: true });
 
 // ── Virtual: normalized worker name ───────────────────────────────────────────
 // Resolves to assignedWorker.name for current records, falls back to the

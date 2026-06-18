@@ -56,7 +56,7 @@ function AvatarDropdown({ user, onLogout }) {
         <div
           className="absolute right-0 top-[calc(100%+10px)] w-52 bg-card rounded-2xl
             shadow-2xl border border-border overflow-hidden z-[100]"
-          style={{ boxShadow: "0 8px 40px rgba(107,15,42,0.15), 0 2px 8px rgba(0,0,0,0.08)" }}
+          style={{ boxShadow: "0 8px 40px rgba(8,53,74,0.15), 0 2px 8px rgba(0,0,0,0.06)" }}
         >
           <div className="px-4 py-3.5 border-b border-border bg-primary/5">
             <div className="flex items-center gap-2.5">
@@ -118,8 +118,8 @@ export default function Navbar() {
   const navCls = (path) => [
     "flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm transition-all duration-150 nav-link",
     isActive(path)
-      ? "bg-white/15 text-white font-semibold"
-      : "text-white/70 hover:text-white hover:bg-white/10",
+      ? "bg-white/[0.18] text-white font-semibold shadow-sm shadow-black/10"
+      : "text-white/65 hover:text-white hover:bg-white/10",
   ].join(" ");
 
   const mobileNavCls = (path) => [
@@ -131,25 +131,32 @@ export default function Navbar() {
 
   return (
     <nav
-      className="bg-primary sticky top-0 z-50"
-      style={{ boxShadow: "0 2px 20px rgba(107,15,42,0.4)" }}
+      className="bg-primary dark:bg-primary-dark sticky top-0 z-50"
+      style={{ boxShadow: "0 2px 24px rgba(8,53,74,0.45)" }}
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-5 lg:px-8">
         <div className="flex items-center justify-between h-16 sm:h-[68px]">
 
-          {/* Logo */}
+          {/* Logo lockup */}
           <Link to="/" className="flex items-center gap-2.5 group flex-shrink-0" onClick={close}>
+            {/* TODO: temporary full-badge logo; replace with icon-only transparent
+                "Variant B" mark once available (see LOGO_INTEGRATION_PLAN.md §3) */}
             <img
-              src="/logo.jpg"
-              alt="Austrum"
-              className="h-8 w-8 sm:h-9 sm:w-9 rounded-full object-cover border-2 border-blush/40
-                group-hover:border-blush/70 transition-all duration-200"
+              src="/upkeep_logo.png"
+              alt="UpKeep by Austrum"
+              className="h-8 w-8 sm:h-9 sm:w-9 rounded-full object-cover border-2 border-white/20
+                group-hover:border-white/50 shadow-sm transition-all duration-200"
             />
-            <span className="text-white text-lg sm:text-xl hidden sm:block nav-brand">Austrum</span>
+            <div className="hidden sm:flex flex-col justify-center">
+              <span className="text-white text-lg sm:text-xl leading-tight nav-brand">UpKeep</span>
+              <span className="text-white/35 text-[9px] font-medium leading-none tracking-[0.12em] uppercase">
+                by Austrum
+              </span>
+            </div>
           </Link>
 
           {/* Desktop nav */}
-          <div className="hidden md:flex items-center gap-0.5">
+          <div className="hidden md:flex items-center gap-1">
             <Link to="/" className={navCls("/")}>
               <Home size={14} strokeWidth={2.5} />
               Home

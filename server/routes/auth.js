@@ -1,48 +1,40 @@
 // server/routes/auth.js
 // Phone-centric authentication routes.
 //
-// New endpoints:
-//   POST /api/auth/send-otp      — send OTP to phone (signup only)
-//   POST /api/auth/verify-otp   — verify OTP, receive signupToken
+// Signup uses Firebase Phone Authentication:
+//   1. Client (web SDK) verifies the phone via Firebase (SMS OTP + Firebase's own
+//      reCAPTCHA) and obtains a Firebase ID token.
+//   2. Client calls POST /api/auth/register with that idToken.
+//   3. Server verifies the token via the Firebase Admin SDK, confirms the phone
+//      matches, and creates the account storing firebaseUid + isPhoneVerified.
 //
-// Updated endpoints:
-//   POST /api/auth/register     — requires signupToken from verify-otp
-//   POST /api/auth/login        — accepts phone OR email + password
-//   GET  /api/auth/me           — unchanged
-//   PUT  /api/auth/profile      — unchanged
+// Login remains password-based (phone OR email + password) — unchanged.
+//
+// Endpoints:
+//   POST /api/auth/register   — create account (requires firebaseIdToken)
+//   POST /api/auth/login      — phone OR email + password
+//   GET  /api/auth/me         — current user
+//   PUT  /api/auth/profile    — update name/phone/address
 
 const express   = require("express");
 const jwt       = require("jsonwebtoken");
 const rateLimit = require("express-rate-limit");
 const User      = require("../models/User");
 const protect   = require("../middleware/auth");
-const {
-  sendOTP,
-  verifyOTP,
-  normalizePhone,
-  isValidIndianPhone,
-} = require("../services/otpService");
+const { normalizePhone, isValidIndianPhone } = require("../utils/phone");
+const { verifyFirebaseToken } = require("../services/firebaseAdmin");
 
 const router = express.Router();
 
 // ── Rate Limiters ─────────────────────────────────────────────────────────────
 
-// Max 3 OTP requests per IP per 10 minutes
-const otpSendLimiter = rateLimit({
-  windowMs:        10 * 60 * 1000, // 10 minutes
-  max:             3,
-  standardHeaders: true,
-  legacyHeaders:   false,
-  message:         { message: "Too many OTP requests. Please wait 10 minutes and try again." },
-});
-
-// Max 10 verify attempts per IP per 10 minutes
-const otpVerifyLimiter = rateLimit({
-  windowMs:        10 * 60 * 1000,
+// Max 10 registrations per IP per 15 minutes (Firebase already rate-limits SMS)
+const registerLimiter = rateLimit({
+  windowMs:        15 * 60 * 1000,
   max:             10,
   standardHeaders: true,
   legacyHeaders:   false,
-  message:         { message: "Too many attempts. Please wait 10 minutes." },
+  message:         { message: "Too many signup attempts. Please try again later." },
 });
 
 // Max 10 login attempts per IP per 15 minutes
@@ -54,7 +46,7 @@ const loginLimiter = rateLimit({
   message:         { message: "Too many login attempts. Please try again later." },
 });
 
-// ── Token helpers ─────────────────────────────────────────────────────────────
+// ── Token helper ──────────────────────────────────────────────────────────────
 
 /**
  * Full session token — stored in localStorage, used for all API calls.
@@ -74,83 +66,12 @@ const signSessionToken = (user) =>
     { expiresIn: process.env.JWT_EXPIRES_IN || "7d" }
   );
 
-/**
- * Short-lived signup token — proves phone was verified.
- * Passed from /verify-otp → /register to complete account creation.
- * Expires in 10 minutes.
- */
-const signSignupToken = (phone) =>
-  jwt.sign(
-    { phone, purpose: "signup" },
-    process.env.JWT_SECRET,
-    { expiresIn: "10m" }
-  );
-
-// ── POST /api/auth/send-otp ───────────────────────────────────────────────────
-// Generates and sends an OTP to the given Indian phone number.
-// Only for new accounts — rejects already-registered phones.
-router.post("/send-otp", otpSendLimiter, async (req, res) => {
-  try {
-    const { phone } = req.body;
-
-    if (!phone)
-      return res.status(400).json({ message: "Phone number is required." });
-
-    if (!isValidIndianPhone(phone))
-      return res.status(400).json({
-        message: "Enter a valid Indian mobile number (10 digits, starting with 6–9).",
-      });
-
-    const normalised = normalizePhone(phone);
-
-    // Block if phone already registered
-    const existing = await User.findOne({ phone: normalised });
-    if (existing)
-      return res.status(409).json({ message: "This phone number is already registered. Please log in." });
-
-    await sendOTP(normalised);
-
-    res.json({ message: "OTP sent successfully." });
-  } catch (err) {
-    console.error("send-otp error:", err.message);
-    res.status(500).json({ message: "Failed to send OTP. Please try again." });
-  }
-});
-
-// ── POST /api/auth/verify-otp ─────────────────────────────────────────────────
-// Verifies the OTP.  On success, returns a short-lived signupToken that
-// /register requires to create the account.
-router.post("/verify-otp", otpVerifyLimiter, async (req, res) => {
-  try {
-    const { phone, otp } = req.body;
-
-    if (!phone || !otp)
-      return res.status(400).json({ message: "Phone and OTP are required." });
-
-    if (!isValidIndianPhone(phone))
-      return res.status(400).json({ message: "Invalid phone number." });
-
-    const result = await verifyOTP(phone, String(otp).trim());
-
-    if (!result.success)
-      return res.status(400).json({ message: result.reason });
-
-    // Issue a short-lived token that proves this phone was verified
-    const signupToken = signSignupToken(normalizePhone(phone));
-
-    res.json({ message: "Phone verified successfully.", signupToken });
-  } catch (err) {
-    console.error("verify-otp error:", err.message);
-    res.status(500).json({ message: "Verification failed. Please try again." });
-  }
-});
-
 // ── POST /api/auth/register ───────────────────────────────────────────────────
 // Creates a new user account.
-// Requires a valid signupToken from /verify-otp.
-router.post("/register", async (req, res) => {
+// Requires a Firebase ID token proving the phone number was verified.
+router.post("/register", registerLimiter, async (req, res) => {
   try {
-    const { name, phone, email, password, signupToken } = req.body;
+    const { name, phone, email, password, firebaseIdToken } = req.body;
 
     // ── Basic field validation ──────────────────────────────────────────────
     if (!name || !name.trim())
@@ -160,9 +81,7 @@ router.post("/register", async (req, res) => {
       return res.status(400).json({ message: "Phone number is required." });
 
     if (!isValidIndianPhone(phone))
-      return res.status(400).json({
-        message: "Enter a valid Indian mobile number.",
-      });
+      return res.status(400).json({ message: "Enter a valid Indian mobile number." });
 
     if (!password || password.length < 8)
       return res.status(400).json({ message: "Password must be at least 8 characters." });
@@ -170,29 +89,32 @@ router.post("/register", async (req, res) => {
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
       return res.status(400).json({ message: "Enter a valid email address." });
 
-    // ── Validate signupToken ────────────────────────────────────────────────
-    if (!signupToken)
+    // ── Verify Firebase phone authentication ──────────────────────────────────
+    if (!firebaseIdToken)
       return res.status(400).json({ message: "Phone verification is required to create an account." });
 
-    let decoded;
+    let verified;
     try {
-      decoded = jwt.verify(signupToken, process.env.JWT_SECRET);
-    } catch {
-      return res.status(400).json({ message: "Verification expired. Please verify your phone again." });
+      verified = await verifyFirebaseToken(firebaseIdToken);
+    } catch (err) {
+      console.error("Firebase token verification failed:", err.message);
+      return res.status(400).json({ message: "Phone verification expired or invalid. Please verify again." });
     }
-
-    if (decoded.purpose !== "signup")
-      return res.status(400).json({ message: "Invalid verification token." });
 
     const normalised = normalizePhone(phone);
 
-    if (decoded.phone !== normalised)
+    // The phone proven by Firebase must match the phone being registered.
+    if (!verified.phone || normalizePhone(verified.phone) !== normalised)
       return res.status(400).json({ message: "Phone number does not match the verified number." });
 
     // ── Duplicate checks ────────────────────────────────────────────────────
     const phoneExists = await User.findOne({ phone: normalised });
     if (phoneExists)
       return res.status(409).json({ message: "Phone number already registered. Please log in." });
+
+    const uidExists = await User.findOne({ firebaseUid: verified.uid });
+    if (uidExists)
+      return res.status(409).json({ message: "This phone is already linked to an account. Please log in." });
 
     if (email) {
       const emailExists = await User.findOne({ email: email.toLowerCase() });
@@ -206,6 +128,7 @@ router.post("/register", async (req, res) => {
       phone:           normalised,
       email:           email ? email.toLowerCase() : null,
       password,
+      firebaseUid:     verified.uid,
       isPhoneVerified: true,
     });
 

@@ -2,33 +2,61 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── Design tokens — Light theme (default) ── */
+/* ── Design tokens — Light theme (default) ─────────────────────────────────
+   Source of truth: COLOR_SYSTEM.md (v2.0) + BRAND_REFRESH_GUIDE.md
+   Burgundy family (#6B0F2A, #8B1A3A, #4A0A1D, rgba(107,15,42,*)) is fully
+   retired from all live UI tokens per COLOR_SYSTEM.md §0 and §8.
+   ──────────────────────────────────────────────────────────────────────── */
 :root {
-  --bg:            #F4F1EF;
-  --card:          #ffffff;
-  --text:          #1A1A1A;
-  --muted:         #6B7280;
-  --primary:       #6B0F2A;
-  --primary-hover: #8B1A3A;
-  --primary-dark:  #4A0A1D;
-  --blush:         #E8A4AF;
-  --border:        #E5E7EB;  /* gray-200 equivalent */
-  --accent:        #E8A4AF;
+  /* ── Backgrounds & surfaces ── */
+  --bg:            #F3F6F8;   /* cool off-white — UpKeep page bg (was warm cream) */
+  --card:          #FFFFFF;
+  --text:          #15222B;   /* near-navy-black */
+  --muted:         #5C7282;   /* Graphite Slate mid — also secondary-500 */
+  --border:        #E2E8EC;
+
+  /* ── Harbor Navy (primary) — sampled from logo badge ── */
+  --primary:       #0E4A63;   /* primary-600 DEFAULT: buttons, links, nav, focus rings */
+  --primary-hover: #15607F;   /* primary-500: hover state */
+  --primary-dark:  #08354A;   /* primary-800: navbar bg, exact logo-badge navy */
+
+  /* ── Graphite Slate (secondary — new tier, replaces maroon's structural role) ── */
+  --secondary:       #3F4F5C; /* secondary-600 DEFAULT */
+  --secondary-hover: #25313A; /* secondary-800 */
+
+  /* ── Workshop Copper (accent — replaces maroon/blush; ≤8% of screen area) ── */
+  --accent:          #C16A21; /* accent-600: decorative icons, underlines, thin borders */
+  --accent-hover:    #D88A3E; /* accent-500 */
+  --accent-text:     #9C5418; /* accent-700: text-safe — for solid fills with white text */
+
+  /* ── "Sand" tint (accent-100) — replaces old pink blush as soft bg/pill tint ──
+     Token kept on --blush name for backward compatibility with existing JSX
+     utility classes (bg-blush, border-blush/*, shadow-blush/*) ── */
+  --blush:         #FBE7D3;
 }
 
-/* ── Design tokens — Dark theme ── */
-/* Applied when <html class="dark"> is present (set by src/utils/theme.js) */
+/* ── Design tokens — Dark theme ─────────────────────────────────────────────
+   Applied when <html class="dark"> is present (set by src/utils/theme.js)
+   ──────────────────────────────────────────────────────────────────────── */
 .dark {
-  --bg:            #0B0F14;
-  --card:          #121821;
-  --text:          #E6EDF3;
-  --muted:         #9AA4B2;
-  --primary:       #8B1A3A;
-  --primary-hover: #A8324F;
-  --primary-dark:  #5A0F25;
-  --blush:         #E8A4AF;
-  --border:        #1F2937;
-  --accent:        #E8A4AF;
+  --bg:            #081821;
+  --card:          #102531;
+  --text:          #E7EEF2;
+  --muted:         #93A8B5;
+  --border:        #1C3645;
+
+  --primary:       #3AA0C4;   /* lightened navy for sufficient contrast on dark bg */
+  --primary-hover: #57B4D6;
+  --primary-dark:  #08354A;   /* same surface depth — navbar/footer stays darkest navy */
+
+  --secondary:       #8FA0AC;
+  --secondary-hover: #A8BAC5;
+
+  --accent:          #E2A569;  /* lightened copper for dark-surface visibility */
+  --accent-hover:    #E8B07A;
+  --accent-text:     #C17535;  /* text-safe copper on dark surfaces */
+
+  --blush:         #FBE7D3;   /* sand tint — same value; opacity variants (eg /40) adapt it */
 }
 
 @layer base {
@@ -48,13 +76,13 @@
     background-color: var(--bg);
   }
 
-  /* Better focus rings globally */
+  /* Focus rings — navy tint replaces burgundy */
   :focus-visible {
-    outline: 2px solid rgba(107, 15, 42, 0.4);
+    outline: 2px solid rgba(14, 74, 99, 0.4);
     outline-offset: 2px;
   }
 
-  /* Smooth scrollbar */
+  /* Smooth scrollbar — navy tint replaces burgundy */
   ::-webkit-scrollbar {
     width: 6px;
     height: 6px;
@@ -63,11 +91,11 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: rgba(107, 15, 42, 0.2);
+    background: rgba(8, 53, 74, 0.2);
     border-radius: 999px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: rgba(107, 15, 42, 0.35);
+    background: rgba(8, 53, 74, 0.35);
   }
 }
 
@@ -79,13 +107,31 @@
     letter-spacing: -0.01em;
   }
 
+  /* Brand wordmark — used for primary "UpKeep" text in nav/auth/footer lockups */
+  .upkeep-brand {
+    font-family: 'Sora', sans-serif;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  /* "by Austrum" endorsement sub-line beneath the wordmark */
+  .upkeep-tagline {
+    font-family: 'Sora', sans-serif;
+    font-weight: 400;
+    letter-spacing: 0;
+    color: var(--accent);
+  }
+
   .nav-link {
     font-family: 'Sora', sans-serif;
     font-weight: 500;
   }
 
+  /* ── Heading class — Playfair Display fully retired per BRAND_REFRESH_GUIDE.md §9.
+     Sora carries the full hierarchy; visual weight comes from font-bold/font-extrabold
+     Tailwind utilities applied in JSX. ── */
   .landing-heading {
-    font-family: 'Playfair Display', Georgia, 'Times New Roman', serif;
+    font-family: 'Sora', sans-serif;
     letter-spacing: -0.01em;
   }
 
@@ -104,16 +150,16 @@
     @apply py-10 md:py-14;
   }
 
-  /* ── Card base ── */
+  /* ── Card base — shadow tinted navy instead of black/burgundy ── */
   .card {
     @apply bg-card rounded-2xl border border-border;
   }
   .card-shadow {
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
+    box-shadow: 0 2px 12px rgba(8, 53, 74, 0.06);
   }
 
   .card-shadow-hover {
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 8px 32px rgba(8, 53, 74, 0.12);
   }
 
   /* ── Buttons ── */
@@ -127,7 +173,7 @@
       shadow-md
       focus:outline-none focus:ring-2 focus:ring-primary/30
       disabled:opacity-60 disabled:cursor-not-allowed disabled:translate-y-0;
-    box-shadow: 0 4px 14px rgba(107, 15, 42, 0.22);
+    box-shadow: 0 4px 14px rgba(14, 74, 99, 0.25); /* navy glow replaces burgundy */
   }
 
   /* ── Section label pill ── */
@@ -152,9 +198,17 @@
     @apply bg-primary text-white;
   }
 
-  /* ── Fade-in animation for modals / dropdowns ── */
+  /* ── Fade-in animation — modals, dropdowns, staggered hero load ── */
   .animate-in {
-    animation: fadeInUp 0.18s ease-out forwards;
+    animation: fadeInUp 0.22s ease-out both;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-in {
+      animation: none;
+      opacity: 1;
+      transform: none;
+    }
   }
 
   /* ── Subtle shimmer for skeletons ── */

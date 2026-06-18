@@ -22,8 +22,8 @@ router.get("/time-slots", (req, res) => {
 // Set these in server/.env (see env.example for reference).
 router.get("/site", (req, res) => {
   res.json({
-    businessName: process.env.SITE_BUSINESS_NAME || "Austrum",
-    tagline:      process.env.SITE_TAGLINE        || "Nashik's Trusted Home Services",
+    businessName: process.env.SITE_BUSINESS_NAME || "UpKeep",
+    tagline:      process.env.SITE_TAGLINE        || "by Austrum",
     city:         process.env.SITE_CITY           || "Nashik, Maharashtra",
     phone:        process.env.SITE_PHONE          || "+91 98765 43210",
     email:        process.env.SITE_EMAIL          || "support@austrum.in",

@@ -1,7 +1,7 @@
 // server/controllers/workerController.js
 
 const Worker = require("../models/Worker");
-const { isValidIndianPhone, normalizePhone } = require("../services/otpService");
+const { isValidIndianPhone, normalizePhone } = require("../utils/phone");
 const isValidObjectId = require("../utils/isValidObjectId");
 
 // ── GET /api/workers ──────────────────────────────────────────────────────────

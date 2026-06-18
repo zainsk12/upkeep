@@ -6,6 +6,7 @@ const {
   getHomepageReviews,
   getAllReviewsPublic,
   getMyReviewedBookingIds,
+  getReviewStats,
 } = require("../controllers/reviewController");
 const protect = require("../middleware/auth");
 
@@ -13,6 +14,9 @@ const router = express.Router();
 
 // ── Public routes ──────────────────────────────────────────────────────────────
 // NOTE: named routes MUST come before the bare GET "/" to avoid param conflicts.
+
+// Aggregate stats — average rating + total count (public)
+router.get("/stats",                 getReviewStats);
 
 // MODULE 6: Homepage-filtered reviews (isFeatured OR rating >= threshold)
 router.get("/homepage",              getHomepageReviews);

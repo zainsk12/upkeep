@@ -141,9 +141,30 @@ const getMyReviewedBookingIds = async (req, res) => {
   }
 };
 
+/* ─────────────────────────────────────────────────────────────
+   GET /api/reviews/stats
+   Public — aggregate average rating and total review count.
+───────────────────────────────────────────────────────────── */
+const getReviewStats = async (req, res) => {
+  try {
+    const result = await Review.aggregate([
+      { $group: { _id: null, avg: { $avg: "$rating" }, count: { $sum: 1 } } },
+    ]);
+    const row = result[0];
+    res.json({
+      averageRating: row && row.count > 0 ? Math.round(row.avg * 10) / 10 : null,
+      totalReviews:  row ? row.count : 0,
+    });
+  } catch (err) {
+    console.error("getReviewStats error:", err.message);
+    res.status(500).json({ message: "Server error." });
+  }
+};
+
 module.exports = {
   createReview,
   getHomepageReviews,
   getAllReviewsPublic,
   getMyReviewedBookingIds,
+  getReviewStats,
 };

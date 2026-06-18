@@ -7,7 +7,13 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "../../utils/toast";
-import { sendOtpApi, verifyOtpApi, signupApi } from "../../services/authApi";
+import { signupApi } from "../../services/authApi";
+import {
+  auth,
+  RecaptchaVerifier,
+  signInWithPhoneNumber,
+  firebaseAuthErrorMessage,
+} from "../../services/firebase";
 import { useAuth } from "../../context/AuthContext";
 import FormInput from "../../components/FormInput";
 import { CheckCircle2, Star, Clock, Shield, Phone, ArrowLeft, RotateCcw } from "lucide-react";
@@ -71,16 +77,19 @@ function useResendTimer() {
 // ⚠️  MUST live outside SignupPage. If declared inside the component body,
 //     React treats it as a brand-new component type on every render,
 //     unmounts the old tree, and mounts a fresh one — destroying input focus.
-function LayoutShell({ children }) {
+function LayoutShell({ children, recaptchaRef }) {
   return (
     <div className="min-h-screen flex">
       {/* LEFT — desktop hero */}
       <div className="hidden lg:block lg:w-1/2 relative overflow-hidden">
         <img src="/hero.jpg" alt="" className="absolute inset-0 w-full h-full object-cover" />
-        <div className="absolute inset-0" style={{ background: "linear-gradient(160deg, rgba(107,15,42,0.82) 0%, rgba(20,5,10,0.88) 100%)", backdropFilter: "blur(1px)" }} />
+        <div className="absolute inset-0" style={{ background: "linear-gradient(160deg, rgba(8,53,74,0.90) 0%, rgba(5,15,25,0.88) 100%)", backdropFilter: "blur(1px)" }} />
         <div className="relative h-full flex flex-col items-center justify-center p-12 text-center">
-          <img src="/logo.jpg" alt="Austrum" className="w-24 h-24 rounded-full object-cover border-4 border-blush/35 shadow-2xl mb-8" />
-          <h2 className="text-4xl font-bold text-white mb-3 auth-heading">Austrum</h2>
+          <img src="/upkeep_logo.png" alt="UpKeep by Austrum" className="w-24 h-24 rounded-full object-cover border-4 border-blush/35 shadow-2xl mb-8" />
+          <h2 className="text-4xl font-bold text-white mb-1 auth-heading">UpKeep</h2>
+          <p className="text-blush/70 text-xs font-semibold uppercase tracking-widest mb-3">
+            by Austrum
+          </p>
           <p className="text-white/55 text-base leading-relaxed max-w-xs mb-10">
             Premium home services, delivered with care and professionalism.
           </p>
@@ -100,7 +109,7 @@ function LayoutShell({ children }) {
         {/* Mobile bg */}
         <div className="absolute inset-0 lg:hidden">
           <img src="/hero.jpg" alt="" className="w-full h-full object-cover" />
-          <div className="absolute inset-0" style={{ background: "linear-gradient(160deg, rgba(107,15,42,0.88) 0%, rgba(20,5,10,0.92) 100%)" }} />
+          <div className="absolute inset-0" style={{ background: "linear-gradient(160deg, rgba(8,53,74,0.93) 0%, rgba(5,15,25,0.92) 100%)" }} />
         </div>
 
         {/* Card */}
@@ -111,10 +120,14 @@ function LayoutShell({ children }) {
         ].join(" ")}>
           {/* Mobile branding */}
           <div className="lg:hidden text-center mb-7">
-            <img src="/logo.jpg" alt="Austrum" className="w-16 h-16 rounded-full object-cover border-2 border-blush/50 shadow-lg shadow-primary/40 mx-auto mb-3" />
-            <p className="text-white/50 text-xs font-semibold uppercase tracking-widest">Nashik's Trusted Home Services</p>
+            <img src="/upkeep_logo.png" alt="UpKeep by Austrum" className="w-16 h-16 rounded-full object-cover border-2 border-blush/50 shadow-lg shadow-primary/40 mx-auto mb-3" />
+            <p className="text-white/50 text-xs font-semibold uppercase tracking-widest">UpKeep — Nashik's Trusted Home Services</p>
           </div>
           {children}
+          {/* Firebase invisible reCAPTCHA mounts here (signup phone verification).
+              Bound via ref (not getElementById) so the verifier attaches to this
+              exact node — avoids StrictMode duplicate-id render collisions. */}
+          <div ref={recaptchaRef} id="recaptcha-container" />
         </div>
       </div>
     </div>
@@ -135,13 +148,49 @@ export default function SignupPage() {
   const [step, setStep]               = useState(1); // 1 = form, 2 = OTP
   const [otp, setOtp]                 = useState("");
   const [otpError, setOtpError]       = useState("");
-  const [signupToken, setSignupToken] = useState(null);
 
   // Loading
   const [loadingSend, setLoadingSend]     = useState(false);
   const [loadingVerify, setLoadingVerify] = useState(false);
 
+  // Firebase phone-auth refs
+  const recaptchaVerifierRef  = useRef(null); // Firebase invisible reCAPTCHA
+  const recaptchaContainerRef = useRef(null); // stable DOM node the verifier renders into
+  const confirmationRef       = useRef(null); // confirmationResult from signInWithPhoneNumber
+
   const { seconds, start: startTimer, canResend } = useResendTimer();
+
+  // Lazily create (or reuse) the invisible reCAPTCHA verifier bound to #recaptcha-container.
+  const getRecaptchaVerifier = () => {
+    if (!recaptchaVerifierRef.current) {
+      recaptchaVerifierRef.current = new RecaptchaVerifier(
+        auth,
+        // Pass the live DOM node (falling back to the id) so the widget binds to
+        // this exact element rather than whatever getElementById resolves first.
+        recaptchaContainerRef.current || "recaptcha-container",
+        { size: "invisible" }
+      );
+    }
+    return recaptchaVerifierRef.current;
+  };
+
+  const resetRecaptcha = () => {
+    try { recaptchaVerifierRef.current?.clear(); } catch { /* noop */ }
+    recaptchaVerifierRef.current = null;
+    // If clear() didn't fully tear down the widget, empty the node so the next
+    // verifier doesn't hit "reCAPTCHA has already been rendered in this element".
+    if (recaptchaContainerRef.current) recaptchaContainerRef.current.innerHTML = "";
+  };
+
+  // Tear down the verifier on unmount to avoid leaking the reCAPTCHA widget.
+  useEffect(() => () => resetRecaptcha(), []);
+
+  // Send (or resend) the Firebase SMS OTP to the entered phone number.
+  const requestFirebaseOtp = async () => {
+    const phoneE164 = `+91${normalizePhone(form.phone)}`;
+    const confirmation = await signInWithPhoneNumber(auth, phoneE164, getRecaptchaVerifier());
+    confirmationRef.current = confirmation;
+  };
 
   // ── Handlers: Step 1 ─────────────────────────────────────────────────────
   const handleChange = (e) => {
@@ -163,13 +212,15 @@ export default function SignupPage() {
     const toastId = toast.loading("Sending OTP…");
 
     try {
-      await sendOtpApi({ phone: normalizePhone(form.phone) });
+      await requestFirebaseOtp();
       toast.success(`OTP sent to +91 ${normalizePhone(form.phone)}`, { id: toastId });
       setStep(2);
       startTimer();
     } catch (err) {
-      const msg = err.response?.data?.message || "Failed to send OTP. Please try again.";
-      toast.error(msg, { id: toastId });
+      // Reset the verifier so the next attempt starts clean.
+      resetRecaptcha();
+      console.error("RAW FIREBASE OTP ERROR", err);
+      toast.error(firebaseAuthErrorMessage(err), { id: toastId });
     } finally {
       setLoadingSend(false);
     }
@@ -184,40 +235,50 @@ export default function SignupPage() {
       setOtpError("Enter the 6-digit OTP.");
       return;
     }
+    if (!confirmationRef.current) {
+      setOtpError("Please request an OTP first.");
+      return;
+    }
 
     setLoadingVerify(true);
     const toastId = toast.loading("Verifying OTP…");
 
     try {
-      // Step A: verify OTP → get signupToken
-      const verifyRes = await verifyOtpApi({
-        phone: normalizePhone(form.phone),
-        otp:   trimmedOtp,
-      });
-      const token = verifyRes.data.signupToken;
+      // Step A: confirm the Firebase SMS code → get the verified ID token
+      const credential      = await confirmationRef.current.confirm(trimmedOtp);
+      const firebaseIdToken = await credential.user.getIdToken();
 
       toast.loading("Creating your account…", { id: toastId });
 
-      // Step B: register with signupToken
+      // Step B: register with the Firebase ID token (server verifies it)
       const registerRes = await signupApi({
-        name:        form.name.trim(),
-        phone:       normalizePhone(form.phone),
-        email:       form.email.trim() || undefined,
-        password:    form.password,
-        signupToken: token,
+        name:            form.name.trim(),
+        phone:           normalizePhone(form.phone),
+        email:           form.email.trim() || undefined,
+        password:        form.password,
+        firebaseIdToken,
       });
 
       login(registerRes.data.token);
-      toast.success("Welcome to Austrum! 🎉", { id: toastId });
+      toast.success("Welcome to UpKeep! 🎉", { id: toastId });
       navigate("/", { replace: true });
     } catch (err) {
-      const msg = err.response?.data?.message || "Verification failed. Please try again.";
-      // If OTP wrong, show inline; otherwise toast
-      if (err.response?.status === 400) {
-        setOtpError(msg);
+      // Wrong/expired code (Firebase) or backend validation (4xx) → show inline.
+      const isFirebaseCodeError =
+        err?.code === "auth/invalid-verification-code" || err?.code === "auth/code-expired";
+      const isBackend4xx = err.response?.status === 400 || err.response?.status === 409;
+
+      if (isFirebaseCodeError) {
+        setOtpError(firebaseAuthErrorMessage(err));
+        toast.dismiss(toastId);
+      } else if (isBackend4xx) {
+        setOtpError(err.response.data?.message || "Verification failed. Please try again.");
         toast.dismiss(toastId);
       } else {
-        toast.error(msg, { id: toastId });
+        toast.error(
+          err.response?.data?.message || firebaseAuthErrorMessage(err),
+          { id: toastId }
+        );
       }
     } finally {
       setLoadingVerify(false);
@@ -228,20 +289,22 @@ export default function SignupPage() {
     if (!canResend) return;
     const toastId = toast.loading("Resending OTP…");
     try {
-      await sendOtpApi({ phone: normalizePhone(form.phone) });
+      // Recreate the verifier — the previous one is consumed after a send.
+      resetRecaptcha();
+      await requestFirebaseOtp();
       toast.success("New OTP sent!", { id: toastId });
       startTimer();
       setOtp("");
       setOtpError("");
     } catch (err) {
-      const msg = err.response?.data?.message || "Failed to resend OTP.";
-      toast.error(msg, { id: toastId });
+      resetRecaptcha();
+      toast.error(firebaseAuthErrorMessage(err), { id: toastId });
     }
   };
 
   // ── Step 1: Details form ──────────────────────────────────────────────────
   if (step === 1) return (
-    <LayoutShell>
+    <LayoutShell recaptchaRef={recaptchaContainerRef}>
       <h2 className="text-white text-2xl mb-1 auth-heading">Create account</h2>
       <p className="text-white/45 text-sm mb-7">Join thousands of happy customers</p>
 
@@ -355,7 +418,7 @@ export default function SignupPage() {
 
   // ── Step 2: OTP verification ──────────────────────────────────────────────
   return (
-    <LayoutShell>
+    <LayoutShell recaptchaRef={recaptchaContainerRef}>
       <button
         type="button"
         onClick={() => { setStep(1); setOtp(""); setOtpError(""); }}

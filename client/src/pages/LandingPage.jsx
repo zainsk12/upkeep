@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { fetchHomepageReviews } from "../services/reviewApi";
+import { fetchHomepageReviews, fetchReviewStats } from "../services/reviewApi";
 import { getPublicServices, getSiteConfig } from "../services/adminApi";
 import {
   Search, CalendarCheck2, BadgeCheck,
@@ -17,14 +17,6 @@ const STEPS = [
   { num: "01", icon: Search,         title: "Choose a Service", desc: "Browse our curated list of professional home services." },
   { num: "02", icon: CalendarCheck2, title: "Book a Slot",      desc: "Select your preferred date, time, and location."       },
   { num: "03", icon: BadgeCheck,     title: "Job Done",         desc: "A verified expert arrives and completes the work."     },
-];
-
-/* ─── Stats ──────────────────────────────────────────── */
-const STATS = [
-  { value: "10K+", label: "Happy Customers" },
-  { value: "500+", label: "Verified Experts" },
-  { value: "50+",  label: "Services"         },
-  { value: "4.9★", label: "Avg. Rating"      },
 ];
 
 /* ─── Why choose us — 6 cards ────────────────────────── */
@@ -250,7 +242,7 @@ function TestimonialsSection() {
               to="/services"
               className="inline-flex items-center gap-2 mt-6 px-5 py-2.5 rounded-full
                 bg-card border border-border text-sm font-semibold text-text
-                hover:border-blush/50 hover:-translate-y-0.5 transition-all"
+                hover:border-primary/25 hover:text-primary hover:-translate-y-0.5 transition-all"
             >
               Book a Service <ArrowRight size={14} strokeWidth={2.5} />
             </Link>
@@ -269,7 +261,7 @@ function TestimonialsSection() {
             <Link
               to="/reviews"
               className="inline-flex items-center gap-2 px-6 py-3 rounded-full
-                bg-card border border-border text-text hover:border-blush/50
+                bg-card border border-border text-text hover:border-primary/25 hover:text-primary
                 font-semibold text-sm hover:-translate-y-0.5 transition-all duration-200
                 shadow-sm hover:shadow-md"
             >
@@ -366,9 +358,9 @@ function HomepageServicesSection() {
                 key={dbSvc._id || dbSvc.name}
                 to="/services"
                 className="group bg-card rounded-2xl p-4 sm:p-5 text-center border border-border
-                  hover:shadow-xl hover:-translate-y-2 hover:border-blush/40
+                  hover:shadow-xl hover:shadow-primary/[0.10] hover:-translate-y-2 hover:border-primary/20
                   transition-all duration-300 shadow-sm"
-                style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}
+                style={{ boxShadow: "0 2px 8px rgba(8,53,74,0.05)" }}
               >
                 <div
                   className={`w-11 h-11 sm:w-12 sm:h-12 rounded-xl ${bg} flex items-center justify-center
@@ -393,7 +385,7 @@ function HomepageServicesSection() {
         <Link
           to="/services"
           className="inline-flex items-center gap-2 px-6 py-3 rounded-full
-            bg-card border border-border text-text hover:border-blush/50
+            bg-card border border-border text-text hover:border-primary/25 hover:text-primary
             font-semibold text-sm hover:-translate-y-0.5 transition-all duration-200
             shadow-sm hover:shadow-md"
         >
@@ -404,14 +396,34 @@ function HomepageServicesSection() {
   );
 }
 
+/* ─── Hero stats — single source of truth for desktop + mobile ── */
+const HERO_SUPPORTING_STATS = [
+  { value: "1000+", label: "Happy Homes"   },
+  { value: "100+",  label: "Verified Pros" },
+  { value: "10+",   label: "Home Services" },
+];
+const HERO_RATING_FALLBACK = "4.9";
+
 /* ─── Main Landing Page ──────────────────────────────── */
 export default function LandingPage() {
   const { user } = useAuth();
   const isLoggedIn = user != null;
 
+  const [avgRating, setAvgRating] = useState(null);
+
+  useEffect(() => {
+    fetchReviewStats()
+      .then(({ averageRating }) => {
+        if (averageRating != null) setAvgRating(averageRating.toFixed(1));
+      })
+      .catch(() => { /* keep fallback */ });
+  }, []);
+
+  const displayRating = avgRating ?? HERO_RATING_FALLBACK;
+
   const [siteConfig, setSiteConfig] = useState({
-    businessName: "Austrum",
-    tagline:      "Nashik's Trusted Home Services",
+    businessName: "UpKeep",
+    tagline:      "by Austrum",
     city:         "Nashik, Maharashtra",
     phone:        "+91 98765 43210",
     email:        "support@austrum.in",
@@ -427,70 +439,183 @@ export default function LandingPage() {
     <div className="bg-bg">
 
       {/* ── HERO ── */}
-      <section className="relative min-h-[92vh] flex items-center overflow-hidden">
-        <img src="/hero.jpg" alt="" className="absolute inset-0 w-full h-full object-cover" />
-        <div
-          className="absolute inset-0"
-          style={{ background: "linear-gradient(135deg, rgba(107,15,42,0.85) 0%, rgba(26,26,26,0.80) 100%)" }}
+      <section className="relative flex flex-col overflow-hidden min-h-[62svh] sm:min-h-[70vh]">
+
+        {/* Background photo — file untouched per hard constraint */}
+        <img
+          src="/hero.jpg"
+          alt=""
+          aria-hidden="true"
+          className="absolute inset-0 w-full h-full object-cover"
         />
 
-        <div className="relative max-w-7xl mx-auto px-6 lg:px-8 py-24 grid lg:grid-cols-2 gap-14 items-center w-full">
-          <div>
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10
-              border border-white/20 text-white/70 text-xs font-medium mb-6 backdrop-blur-sm">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              Nashik's #1 Home Services Platform
+        {/* Overlay — directional navy-charcoal duotone scrim.
+            Darkest top-left (content column), eases bottom-right so the photo
+            reads as deep navy-charcoal, not its original pink/burgundy.
+            Per BRAND_REFRESH_GUIDE.md §11 / HERO_REDESIGN_PLAN.md §8. */}
+        <div
+          className="absolute inset-0"
+          style={{ background: "linear-gradient(110deg, rgba(5,15,25,0.96) 0%, rgba(8,53,74,0.91) 55%, rgba(8,53,74,0.83) 100%)" }}
+        />
+
+        {/* ── Main content — vertically centered, fills remaining space ── */}
+        <div className="relative flex-1 flex items-center">
+          <div className="max-w-6xl mx-auto px-6 lg:px-10 pt-12 sm:pt-16 pb-2 w-full">
+
+            {/* 1. Brand lockup — stacked: logo · UpKeep / by Austrum */}
+            <div
+              className="flex items-center gap-3 mb-4 sm:mb-5 animate-in"
+              style={{ animationDelay: "0ms" }}
+            >
+              <img
+                src="/upkeep_logo.png"
+                alt=""
+                aria-hidden="true"
+                className="h-10 w-10 sm:h-12 sm:w-12 rounded-full object-cover
+                  border-2 border-white/20 shadow-md flex-shrink-0"
+              />
+              <div className="flex flex-col justify-center">
+                <span className="text-white text-2xl sm:text-3xl font-bold nav-brand tracking-tight leading-tight">
+                  UpKeep
+                </span>
+                <span className="text-white/45 text-[11px] font-medium tracking-wide leading-none mt-0.5">
+                  by Austrum
+                </span>
+              </div>
             </div>
 
-            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-white leading-tight mb-5 landing-heading">
-              Premium Home<br />
-              Services,{" "}
-              <span className="text-blush">Done Right</span>
+            {/* 2. Headline */}
+            <h1
+              className="text-[2.05rem] sm:text-4xl lg:text-5xl font-extrabold
+                text-white leading-[1.1] tracking-tight mb-4 sm:mb-5
+                landing-heading max-w-2xl animate-in"
+              style={{ animationDelay: "80ms" }}
+            >
+              The trusted way to keep
+              <br className="hidden sm:block" />{" "}
+              your <span className="text-accent">home</span> running.
             </h1>
-            <p className="text-white/65 text-base sm:text-lg leading-relaxed mb-8 max-w-lg">
-              Trusted, verified professionals for every corner of your home.
-              Book in seconds, results guaranteed.
-            </p>
-            <div className="flex flex-wrap gap-3 sm:gap-4">
+
+            {/* 3. Micro-trust row */}
+            <div
+              className="flex flex-wrap items-center gap-x-5 gap-y-2
+                mb-5 sm:mb-6 animate-in"
+              style={{ animationDelay: "160ms" }}
+            >
+              {[
+                { icon: ShieldCheck, label: "Verified Professionals" },
+                { icon: BadgeCheck,  label: "Background-Checked"     },
+                { icon: ThumbsUp,    label: "100% Satisfaction"      },
+              ].map(({ icon: Icon, label }) => (
+                <span
+                  key={label}
+                  className="flex items-center gap-1.5 text-white/55 text-xs font-medium"
+                >
+                  <Icon
+                    size={12}
+                    className="text-emerald-400/90 flex-shrink-0"
+                    strokeWidth={2.2}
+                  />
+                  {label}
+                </span>
+              ))}
+            </div>
+
+            {/* 4. CTA — single primary action */}
+            <div
+              className="animate-in"
+              style={{ animationDelay: "240ms" }}
+            >
               <Link
                 to="/services"
-                className="flex items-center gap-2 px-6 sm:px-8 py-3.5 sm:py-4 rounded-full
-                  bg-blush hover:bg-blush/80 text-primary font-bold text-sm
-                  transition-all hover:-translate-y-1 shadow-xl shadow-blush/30"
+                className="inline-flex items-center gap-2 px-7 sm:px-8 py-3.5 rounded-full
+                  bg-blush hover:bg-blush/85 text-primary-dark font-bold text-sm
+                  transition-all duration-200 hover:-translate-y-0.5
+                  shadow-lg shadow-black/25
+                  focus:outline-none focus:ring-2 focus:ring-blush/50"
               >
-                Book a Service <ArrowRight size={15} strokeWidth={2.5} />
+                Book a Service <ArrowRight size={14} strokeWidth={2.5} />
               </Link>
-              {!isLoggedIn && (
-                <Link
-                  to="/signup"
-                  className="flex items-center gap-2 px-6 sm:px-8 py-3.5 sm:py-4 rounded-full
-                    bg-white/10 hover:bg-white/20 text-white font-semibold text-sm
-                    border border-white/25 backdrop-blur-sm transition-all hover:-translate-y-1"
+            </div>
+          </div>
+        </div>
+
+        {/* 5. Stat strip */}
+        <div
+          className="relative mt-2 mb-8 sm:mb-20 animate-in"
+          style={{ animationDelay: "320ms" }}
+        >
+          {/* Desktop / tablet — horizontal glass strip */}
+          <div className="hidden sm:flex max-w-6xl mx-auto px-6 lg:px-10">
+            <div
+              className="flex-1 flex divide-x divide-white/[0.12]
+                bg-white/[0.07] backdrop-blur-md border border-white/[0.12]
+                rounded-2xl overflow-hidden"
+            >
+              {/* Rating — featured: copper accent, larger type, sub-line */}
+              <div
+                className="flex-1 flex flex-col items-center justify-center px-5 py-4
+                  hover:bg-white/[0.05] transition-colors duration-200 cursor-default"
+              >
+                <div className="text-3xl font-extrabold text-accent leading-none tracking-tight">
+                  {displayRating}
+                </div>
+                <div className="flex items-center gap-[2px] mt-1.5 mb-1">
+                  {[1, 2, 3, 4, 5].map(i => (
+                    <Star key={i} size={10} className="text-amber-400 fill-amber-400" />
+                  ))}
+                </div>
+                <div className="text-white/55 text-xs">Average Rating</div>
+              </div>
+
+              {/* Three supporting stats */}
+              {HERO_SUPPORTING_STATS.map(({ value, label }) => (
+                <div
+                  key={label}
+                  className="flex-1 flex flex-col items-center justify-center px-5 py-4
+                    hover:bg-white/[0.05] transition-colors duration-200 cursor-default"
                 >
-                  <UserPlus size={15} strokeWidth={2.5} />
-                  Get Started Free
-                </Link>
-              )}
+                  <div className="text-2xl font-bold text-white leading-none">{value}</div>
+                  <div className="text-white/55 text-xs mt-1.5">{label}</div>
+                </div>
+              ))}
             </div>
           </div>
 
-          {/* Stats grid */}
-          <div className="hidden lg:grid grid-cols-2 gap-4">
-            {STATS.map(s => (
+          {/* Mobile — 2×2 grid, all four stats visible without scrolling */}
+          <div className="sm:hidden grid grid-cols-2 gap-2.5 px-5">
+            {/* Rating — featured, top-left */}
+            <div
+              className="flex flex-col items-center justify-center px-2.5 py-3
+                bg-white/[0.10] backdrop-blur-md border border-white/[0.15] rounded-xl"
+            >
+              <div className="text-2xl font-extrabold text-accent leading-none">{displayRating}</div>
+              <div className="flex items-center gap-[2px] my-1">
+                {[1, 2, 3, 4, 5].map(i => (
+                  <Star key={i} size={8} className="text-amber-400 fill-amber-400" />
+                ))}
+              </div>
+              <div className="text-white/50 text-[10px] text-center leading-tight">Average Rating</div>
+            </div>
+
+            {/* Three supporting stats — top-right, bottom-left, bottom-right */}
+            {HERO_SUPPORTING_STATS.map(({ value, label }) => (
               <div
-                key={s.label}
-                className="bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl p-6
-                  hover:bg-white/15 hover:-translate-y-1 transition-all duration-300"
+                key={label}
+                className="flex flex-col items-center justify-center px-2.5 py-3
+                  bg-white/[0.10] backdrop-blur-md border border-white/[0.15] rounded-xl"
               >
-                <div className="text-3xl font-bold text-blush">{s.value}</div>
-                <div className="text-white/55 text-sm mt-1">{s.label}</div>
+                <div className="text-xl font-bold text-white leading-none">{value}</div>
+                <div className="text-white/50 text-[10px] mt-1 text-center leading-tight">
+                  {label}
+                </div>
               </div>
             ))}
           </div>
         </div>
 
         {/* Wave divider */}
-        <div className="absolute bottom-0 left-0 right-0">
+        <div className="absolute bottom-0 left-0 right-0 pointer-events-none">
           <svg viewBox="0 0 1440 60" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M0 60L1440 60L1440 20C1200 60 900 0 720 20C540 40 240 0 0 20L0 60Z" fill="var(--bg)" />
           </svg>
@@ -555,7 +680,7 @@ export default function LandingPage() {
             </span>
             <h2 className="text-3xl md:text-4xl font-bold text-text landing-heading">Why Choose Us</h2>
             <p className="text-muted text-sm mt-3 max-w-sm mx-auto leading-relaxed">
-              We built Austrum around one idea — home services should be stress-free.
+              We built UpKeep around one idea — home services should be stress-free.
             </p>
           </div>
 
@@ -588,15 +713,15 @@ export default function LandingPage() {
           <div
             className="rounded-3xl p-10 sm:p-12 md:p-16 text-center relative overflow-hidden
               bg-card border border-border"
-            style={{ boxShadow: "0 4px 40px rgba(107,15,42,0.08), 0 1px 4px rgba(0,0,0,0.04)" }}
+            style={{ boxShadow: "0 4px 40px rgba(8,53,74,0.08), 0 1px 4px rgba(0,0,0,0.04)" }}
           >
             <div
               className="absolute -top-24 -right-24 w-72 h-72 rounded-full pointer-events-none"
-              style={{ background: "radial-gradient(circle, rgba(107,15,42,0.05) 0%, transparent 70%)" }}
+              style={{ background: "radial-gradient(circle, rgba(14,74,99,0.06) 0%, transparent 70%)" }}
             />
             <div
               className="absolute -bottom-24 -left-24 w-72 h-72 rounded-full pointer-events-none"
-              style={{ background: "radial-gradient(circle, rgba(232,164,175,0.07) 0%, transparent 70%)" }}
+              style={{ background: "radial-gradient(circle, rgba(251,231,211,0.07) 0%, transparent 70%)" }}
             />
 
             <div className="relative">
@@ -635,53 +760,70 @@ export default function LandingPage() {
       )}
 
       {/* ── FOOTER ── */}
-      <footer className="bg-primary-dark text-white/45">
-        <div className="max-w-7xl mx-auto px-6 lg:px-8 py-12 grid sm:grid-cols-2 md:grid-cols-3 gap-8">
-          <div>
+      <footer className="bg-primary-dark text-white/40" style={{ background: "var(--primary-dark)" }}>
+        <div className="max-w-7xl mx-auto px-6 lg:px-8 pt-14 pb-10 grid sm:grid-cols-2 md:grid-cols-3 gap-10">
+
+          {/* Brand column */}
+          <div className="md:col-span-1">
             <div className="flex items-center gap-3 mb-4">
               <img
-                src="/logo.jpg"
-                alt="Austrum"
-                className="h-10 w-10 rounded-full object-cover border border-blush/25"
+                src="/upkeep_logo.png"
+                alt="UpKeep by Austrum"
+                className="h-10 w-10 rounded-full object-cover border border-white/20 shadow-sm"
               />
-              <div>
-                <div className="text-white nav-brand">{siteConfig.businessName}</div>
-                <div className="text-blush/50 text-xs">{siteConfig.tagline}</div>
+              <div className="flex flex-col justify-center">
+                <div className="text-white font-bold text-base leading-tight nav-brand">
+                  {siteConfig.businessName}
+                </div>
+                <div className="text-white/35 text-[10px] font-medium tracking-[0.12em] uppercase leading-none mt-0.5">
+                  {siteConfig.tagline}
+                </div>
               </div>
             </div>
-            <p className="text-sm leading-relaxed">
-              Quality home services delivered with professionalism and care.
+            <p className="text-sm leading-relaxed text-white/40 max-w-xs">
+              Nashik's trusted home services — delivered with professionalism and care.
             </p>
           </div>
 
+          {/* Quick Links */}
           <div>
-            <h4 className="text-white font-semibold mb-4 text-sm uppercase tracking-wider">Quick Links</h4>
+            <h4 className="text-white/60 font-semibold mb-4 text-xs uppercase tracking-widest">Quick Links</h4>
             <ul className="space-y-2.5 text-sm">
               {[["Services", "/services"], ["My Bookings", "/my-bookings"], ["Login", "/login"], ["Sign Up", "/signup"]].map(([l, h]) => (
                 <li key={l}>
-                  <Link to={h} className="hover:text-blush transition-colors">{l}</Link>
+                  <Link
+                    to={h}
+                    className="text-white/40 hover:text-white transition-colors duration-150"
+                  >
+                    {l}
+                  </Link>
                 </li>
               ))}
             </ul>
           </div>
 
+          {/* Contact */}
           <div>
-            <h4 className="text-white font-semibold mb-4 text-sm uppercase tracking-wider">Contact</h4>
-            <ul className="space-y-2.5 text-sm">
-              <li className="flex items-center gap-2">
-                <MapPin size={14} className="text-blush/60 flex-shrink-0" /> {siteConfig.city}
+            <h4 className="text-white/60 font-semibold mb-4 text-xs uppercase tracking-widest">Contact</h4>
+            <ul className="space-y-2.5 text-sm text-white/40">
+              <li className="flex items-center gap-2.5">
+                <MapPin size={13} className="text-accent/60 flex-shrink-0" /> {siteConfig.city}
               </li>
-              <li className="flex items-center gap-2">
-                <Phone size={14} className="text-blush/60 flex-shrink-0" /> {siteConfig.phone}
+              <li className="flex items-center gap-2.5">
+                <Phone size={13} className="text-accent/60 flex-shrink-0" /> {siteConfig.phone}
               </li>
-              <li className="flex items-center gap-2">
-                <Mail size={14} className="text-blush/60 flex-shrink-0" /> {siteConfig.email}
+              <li className="flex items-center gap-2.5">
+                <Mail size={13} className="text-accent/60 flex-shrink-0" /> {siteConfig.email}
               </li>
             </ul>
           </div>
         </div>
-        <div className="border-t border-white/8 py-5 text-center text-xs text-white/20">
-          © {new Date().getFullYear()} {siteConfig.businessName}. All rights reserved.
+
+        <div className="border-t border-white/[0.07] py-5">
+          <div className="max-w-7xl mx-auto px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-white/25">
+            <span>© {new Date().getFullYear()} Austrum. All rights reserved.</span>
+            <span className="text-white/15">Part of the Austrum family of products</span>
+          </div>
         </div>
       </footer>
     </div>

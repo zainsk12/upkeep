@@ -7,8 +7,7 @@ const auth = require("../middleware/auth");
 const {
   createBooking,
   getMyBookings,
-  sendConfirmationOTP,
-  verifyConfirmationOTP,
+  confirmBooking,
   rejectBooking,
   rescheduleBooking,
 } = require("../controllers/bookingController");
@@ -16,18 +15,8 @@ const {
 router.post("/", auth, createBooking);
 router.get("/my", auth, getMyBookings);
 
-// OTP quotation confirmation flow
-router.post(
-  "/:id/send-confirmation-otp",
-  auth,
-  sendConfirmationOTP
-);
-
-router.post(
-  "/:id/verify-confirmation-otp",
-  auth,
-  verifyConfirmationOTP
-);
+// Accept quotation → confirm booking (reCAPTCHA v3 protected, no OTP)
+router.post("/:id/confirm", auth, confirmBooking);
 
 // Reject quotation
 router.post("/:id/reject", auth, rejectBooking);

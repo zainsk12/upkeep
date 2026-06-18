@@ -20,7 +20,15 @@
 //
 //   "VITE_EXAMPLE_KEY",
 //
-const REQUIRED_VARS = [];
+const REQUIRED_VARS = [
+  // Firebase Phone Authentication (signup)
+  "VITE_FIREBASE_API_KEY",
+  "VITE_FIREBASE_AUTH_DOMAIN",
+  "VITE_FIREBASE_PROJECT_ID",
+  "VITE_FIREBASE_APP_ID",
+  // Google reCAPTCHA v3 (booking confirmation)
+  "VITE_RECAPTCHA_SITE_KEY",
+];
 
 // ─── Startup validation ───────────────────────────────────────────────────────
 // Runs once at module evaluation time (before the React tree mounts) so a
@@ -46,9 +54,16 @@ const env = {
   /** True in a production build */
   isProd: import.meta.env.PROD === true,
 
-  // ── Add future variables here as they are introduced ──────────────────────
-  // Example:
-  //   apiUrl: import.meta.env.VITE_API_URL,
+  // ── Firebase (Phone Authentication) ───────────────────────────────────────
+  firebase: {
+    apiKey:     import.meta.env.VITE_FIREBASE_API_KEY,
+    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+    projectId:  import.meta.env.VITE_FIREBASE_PROJECT_ID,
+    appId:      import.meta.env.VITE_FIREBASE_APP_ID,
+  },
+
+  // ── Google reCAPTCHA v3 (booking confirmation) ────────────────────────────
+  recaptchaSiteKey: import.meta.env.VITE_RECAPTCHA_SITE_KEY,
 };
 
 export default env;

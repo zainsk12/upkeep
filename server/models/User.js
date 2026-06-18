@@ -59,12 +59,24 @@ const userSchema = new mongoose.Schema(
       type:    Boolean,
       default: false,
     },
+
+    // ── Firebase UID ─────────────────────────────────────────────────────────
+    // Set at signup once the phone is verified via Firebase Phone Authentication.
+    // sparse + unique → multiple nulls allowed (e.g. legacy/admin accounts) but
+    // any non-null UID must be unique.
+    firebaseUid: {
+      type:    String,
+      default: null,
+      trim:    true,
+    },
   },
   { timestamps: true }
 );
 
 // Sparse unique index for email (allows multiple nulls)
 userSchema.index({ email: 1 }, { unique: true, sparse: true });
+// Sparse unique index for Firebase UID (allows multiple nulls)
+userSchema.index({ firebaseUid: 1 }, { unique: true, sparse: true });
 
 // Hash password before saving
 userSchema.pre("save", async function (next) {

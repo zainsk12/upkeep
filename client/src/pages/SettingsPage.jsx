@@ -24,7 +24,7 @@ const SETTINGS_ITEMS = [
   {
     id: "getting-started",
     icon: BookOpen,
-    label: "Getting started with Austrum",
+    label: "Getting started with UpKeep",
     description: "Learn how to book and manage services",
     to: "/settings/getting-started",
   },
@@ -50,7 +50,7 @@ const FAQ_ITEMS = [
   },
   {
     q: "Are the technicians verified and trained?",
-    a: "All Austrum technicians go through a background verification process and practical skill assessment before they are onboarded. You can view the assigned technician's name and rating before they arrive at your doorstep, giving you confidence and transparency at every step.",
+    a: "All UpKeep technicians go through a background verification process and practical skill assessment before they are onboarded. You can view the assigned technician's name and rating before they arrive at your doorstep, giving you confidence and transparency at every step.",
   },
   {
     q: "Is my personal information safe?",
@@ -148,7 +148,7 @@ function AppearancePanel() {
       <div className="px-5 py-4 border-b border-border">
         <p className="text-text font-bold text-sm">Theme</p>
         <p className="text-muted text-xs mt-0.5">
-          Choose how Austrum looks to you
+          Choose how UpKeep looks to you
         </p>
       </div>
 
@@ -157,12 +157,12 @@ function AppearancePanel() {
         <div className="flex items-center gap-3">
           {/* Preview swatch */}
           <div className="w-9 h-9 rounded-xl border border-border flex items-center
-            justify-center bg-[#F4F1EF] flex-shrink-0">
+            justify-center bg-[#F3F6F8] flex-shrink-0">
             <Sun size={16} className="text-amber-500" strokeWidth={2} />
           </div>
           <div>
             <p className="text-text text-sm font-semibold">Light</p>
-            <p className="text-muted text-xs mt-0.5">Warm cream &amp; maroon</p>
+            <p className="text-muted text-xs mt-0.5">Cool off-white &amp; navy</p>
           </div>
         </div>
         <div
@@ -179,12 +179,12 @@ function AppearancePanel() {
         <div className="flex items-center gap-3">
           {/* Preview swatch */}
           <div className="w-9 h-9 rounded-xl border border-border flex items-center
-            justify-center bg-[#0D2B2E] flex-shrink-0">
-            <Moon size={16} className="text-[#9BBFC2]" strokeWidth={2} />
+            justify-center bg-[#081821] flex-shrink-0">
+            <Moon size={16} className="text-[#3AA0C4]" strokeWidth={2} />
           </div>
           <div>
             <p className="text-text text-sm font-semibold">Dark</p>
-            <p className="text-muted text-xs mt-0.5">Deep teal &amp; maroon</p>
+            <p className="text-muted text-xs mt-0.5">Midnight navy &amp; slate</p>
           </div>
         </div>
         <div
@@ -225,7 +225,7 @@ export default function SettingsPage() {
   let heading    = "Settings";
   let subheading = "Manage your account and preferences";
   if (isAppearance)     { heading = "Appearance";   subheading = "Switch between light and dark theme"; }
-  if (isGettingStarted) { heading = "Help & FAQs";  subheading = "Everything you need to know about using Austrum"; }
+  if (isGettingStarted) { heading = "Help & FAQs";  subheading = "Everything you need to know about using UpKeep"; }
 
   return (
     <div className="min-h-screen bg-bg py-10 px-4">
@@ -249,7 +249,7 @@ export default function SettingsPage() {
 
         {/* Page title */}
         <div>
-          <h1 className="text-2xl font-bold text-text leading-tight font-display">
+          <h1 className="text-2xl font-bold text-text leading-tight font-sans">
             {heading}
           </h1>
           <p className="text-muted text-sm mt-1">{subheading}</p>

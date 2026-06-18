@@ -1,0 +1,15 @@
+{
+  "name": "UpKeep by Austrum",
+  "short_name": "UpKeep",
+  "icons": [
+    {
+      "src": "/upkeep_logo.png",
+      "sizes": "1254x1254",
+      "type": "image/png"
+    }
+  ],
+  "theme_color": "#0E4A63",
+  "background_color": "#F4F7F9",
+  "display": "standalone",
+  "start_url": "/"
+}

@@ -1,22 +1,22 @@
 // client/src/pages/MyBookingsPage.jsx
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
 import {
   CalendarDays, Clock, MapPin, FileText,
   Hammer, RefreshCw, PackageOpen, ArrowRight,
   Phone, AlertCircle, Star, X, MessageSquare, CheckCircle2,
   IndianRupee, UserCheck, ThumbsUp, ThumbsDown, Info,
-  ShieldCheck, RotateCcw, KeyRound, CalendarClock,
+  ShieldCheck, CalendarClock,
   Zap, Droplets, Sparkles, Wind, Paintbrush2, Bug, Wrench,
 } from "lucide-react";
 import { toast } from "../utils/toast";
 import {
   getMyBookings,
-  sendConfirmationOTP,
-  verifyConfirmationOTP,
+  confirmBooking,
   rejectBooking,
 } from "../services/bookingApi";
+import { executeRecaptcha } from "../services/recaptcha";
 import RescheduleModal from "../components/RescheduleModal";
 import { submitReview, fetchMyReviewedBookingIds } from "../services/reviewApi";
 import BookingSectionAccordion from "../components/BookingSectionAccordion";
@@ -99,9 +99,6 @@ const ARCHIVE_SECTIONS = [
 
 
 
-/* ─── OTP resend timer: 60 seconds ── */
-const OTP_RESEND_SECONDS = 60;
-
 /* ─── Status badge ── */
 function StatusBadge({ status }) {
   const cfg = STATUS_CONFIG[status] || STATUS_CONFIG.pending;
@@ -174,9 +171,9 @@ function ReviewModal({ booking, onClose, onSuccess }) {
     >
       <div
         className="bg-card w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden"
-        style={{ boxShadow: "0 24px 64px rgba(107,15,42,0.20), 0 4px 16px rgba(0,0,0,0.08)" }}
+        style={{ boxShadow: "0 24px 64px rgba(8,53,74,0.18), 0 4px 16px rgba(0,0,0,0.08)" }}
       >
-        <div className="bg-primary px-5 sm:px-6 py-4 sm:py-5 flex items-center justify-between">
+        <div className="bg-primary dark:bg-primary-dark px-5 sm:px-6 py-4 sm:py-5 flex items-center justify-between">
           <div>
             <p className="text-white/60 text-xs font-medium uppercase tracking-widest">Rate your experience</p>
             <h2 className="text-white font-bold text-base sm:text-lg leading-tight">{booking.service}</h2>
@@ -240,255 +237,6 @@ function ReviewModal({ booking, onClose, onSuccess }) {
               }
             </button>
           </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-/* ─── OTP Confirmation Modal ── */
-function OTPConfirmModal({ booking, maskedPhone, onClose, onSuccess }) {
-  const [otp,       setOtp]       = useState(["", "", "", "", "", ""]);
-  const [loading,   setLoading]   = useState(false);
-  const [resending, setResending] = useState(false);
-  const [resendTimer, setResendTimer] = useState(OTP_RESEND_SECONDS);
-  const [canResend, setCanResend] = useState(false);
-
-  const inputRefs = useRef([]);
-  const timerRef  = useRef(null);
-
-  // Countdown timer
-  useEffect(() => {
-    setCanResend(false);
-    setResendTimer(OTP_RESEND_SECONDS);
-    timerRef.current = setInterval(() => {
-      setResendTimer((t) => {
-        if (t <= 1) {
-          clearInterval(timerRef.current);
-          setCanResend(true);
-          return 0;
-        }
-        return t - 1;
-      });
-    }, 1000);
-    return () => clearInterval(timerRef.current);
-  }, []);
-
-  const otpString = otp.join("");
-
-  const handleDigitChange = (index, value) => {
-    // Accept only digits
-    const digit = value.replace(/\D/g, "").slice(-1);
-    const next  = [...otp];
-    next[index] = digit;
-    setOtp(next);
-    if (digit && index < 5) {
-      inputRefs.current[index + 1]?.focus();
-    }
-  };
-
-  const handleKeyDown = (index, e) => {
-    if (e.key === "Backspace" && !otp[index] && index > 0) {
-      inputRefs.current[index - 1]?.focus();
-    }
-  };
-
-  const handlePaste = (e) => {
-    e.preventDefault();
-    const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
-    if (!pasted) return;
-    const next = [...otp];
-    pasted.split("").forEach((ch, i) => { next[i] = ch; });
-    setOtp(next);
-    // Focus last filled or last box
-    const lastIdx = Math.min(pasted.length, 5);
-    inputRefs.current[lastIdx]?.focus();
-  };
-
-  const handleSubmit = async (e) => {
-    e?.preventDefault();
-    if (otpString.length !== 6) {
-      toast.error("Please enter the complete 6-digit OTP.");
-      return;
-    }
-    setLoading(true);
-    try {
-      const res = await verifyConfirmationOTP(booking._id, otpString);
-      toast.success("Booking confirmed! A worker will be assigned soon. ✅");
-      onSuccess(res.data.booking);
-      onClose();
-    } catch (err) {
-      const msg = err?.response?.data?.message || "OTP verification failed.";
-      toast.error(msg);
-      // Clear OTP inputs on wrong code
-      setOtp(["", "", "", "", "", ""]);
-      inputRefs.current[0]?.focus();
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleResend = async () => {
-    if (!canResend || resending) return;
-    setResending(true);
-    try {
-      await sendConfirmationOTP(booking._id);
-      toast.success("New OTP sent to your registered number.");
-      // Reset timer
-      clearInterval(timerRef.current);
-      setCanResend(false);
-      setResendTimer(OTP_RESEND_SECONDS);
-      setOtp(["", "", "", "", "", ""]);
-      inputRefs.current[0]?.focus();
-      timerRef.current = setInterval(() => {
-        setResendTimer((t) => {
-          if (t <= 1) {
-            clearInterval(timerRef.current);
-            setCanResend(true);
-            return 0;
-          }
-          return t - 1;
-        });
-      }, 1000);
-    } catch (err) {
-      toast.error(err?.response?.data?.message || "Failed to resend OTP.");
-    } finally {
-      setResending(false);
-    }
-  };
-
-  const hasQuotation   = booking.quotation && booking.quotation.labour > 0;
-  const displayTotal   = hasQuotation ? booking.quotation?.total : booking.price;
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
-      style={{ background: "rgba(11,29,58,0.60)", backdropFilter: "blur(8px)" }}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div
-        className="bg-card w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden"
-        style={{ boxShadow: "0 24px 64px rgba(107,15,42,0.22), 0 4px 16px rgba(0,0,0,0.10)" }}
-      >
-        {/* Header */}
-        <div className="bg-primary px-5 sm:px-6 py-4 sm:py-5 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center">
-              <ShieldCheck size={18} className="text-white" />
-            </div>
-            <div>
-              <p className="text-white/60 text-xs font-medium uppercase tracking-widest">Secure Confirmation</p>
-              <h2 className="text-white font-bold text-base leading-tight">Enter OTP</h2>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
-            aria-label="Close"
-          >
-            <X size={16} className="text-white" />
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="p-5 sm:p-6 flex flex-col gap-5">
-          {/* Info */}
-          <div className="text-center">
-            <p className="text-sm text-muted leading-relaxed">
-              We've sent a 6-digit OTP to{" "}
-              <span className="font-semibold text-text">+91&nbsp;{maskedPhone}</span>
-            </p>
-            {displayTotal != null && (
-              <p className="mt-2 text-xs text-muted">
-                Confirming booking for{" "}
-                <span className="font-bold text-primary">
-                  ₹{displayTotal.toLocaleString("en-IN")}
-                </span>
-              </p>
-            )}
-          </div>
-
-          {/* OTP input boxes */}
-          <div className="flex gap-2 sm:gap-3 justify-center" onPaste={handlePaste}>
-            {otp.map((digit, i) => (
-              <input
-                key={i}
-                ref={(el) => { inputRefs.current[i] = el; }}
-                type="text"
-                inputMode="numeric"
-                maxLength={1}
-                value={digit}
-                autoFocus={i === 0}
-                onChange={(e) => handleDigitChange(i, e.target.value)}
-                onKeyDown={(e) => handleKeyDown(i, e)}
-                className={`
-                  w-11 h-14 sm:w-12 sm:h-14 text-center text-xl font-bold rounded-xl border-2
-                  focus:outline-none transition-all text-text bg-bg
-                  ${digit
-                    ? "border-primary bg-primary/5 dark:bg-primary/10"
-                    : "border-border hover:border-primary/40"
-                  }
-                  focus:border-primary focus:ring-2 focus:ring-primary/20
-                `}
-              />
-            ))}
-          </div>
-
-          {/* Resend timer */}
-          <div className="text-center">
-            {canResend ? (
-              <button
-                type="button"
-                onClick={handleResend}
-                disabled={resending}
-                className="inline-flex items-center gap-1.5 text-sm text-primary font-semibold
-                  hover:underline disabled:opacity-50 transition-opacity"
-              >
-                {resending
-                  ? <span className="inline-block w-3.5 h-3.5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
-                  : <RotateCcw size={13} />
-                }
-                {resending ? "Sending…" : "Resend OTP"}
-              </button>
-            ) : (
-              <p className="text-xs text-muted">
-                Resend OTP in{" "}
-                <span className="font-semibold text-text tabular-nums">
-                  0:{String(resendTimer).padStart(2, "0")}
-                </span>
-              </p>
-            )}
-          </div>
-
-          {/* Action buttons */}
-          <div className="flex gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 px-4 py-3 rounded-xl border border-border text-muted
-                hover:bg-bg text-sm font-semibold transition-all"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={loading || otpString.length !== 6}
-              className="flex-[2] flex items-center justify-center gap-2 px-4 py-3 rounded-xl
-                bg-primary hover:bg-primary-hover text-white text-sm font-bold
-                transition-all hover:-translate-y-0.5 shadow-md shadow-primary/30
-                disabled:opacity-50 disabled:cursor-not-allowed disabled:translate-y-0"
-            >
-              {loading
-                ? <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                : <><KeyRound size={15} /> Confirm Booking</>
-              }
-            </button>
-          </div>
-
-          {/* Security note */}
-          <p className="text-center text-xs text-muted flex items-center justify-center gap-1.5">
-            <ShieldCheck size={11} className="text-emerald-500 flex-shrink-0" />
-            OTP valid for 5 minutes · Do not share with anyone
-          </p>
         </form>
       </div>
     </div>
@@ -626,7 +374,7 @@ function QuoteBanner({ booking, onAcceptClick, onReject, loading }) {
         </div>
         <p className="text-xs text-muted flex items-center gap-1.5">
           <ShieldCheck size={11} className="text-purple-400 flex-shrink-0" />
-          OTP verification required to confirm acceptance.
+          Protected by reCAPTCHA. Accepting confirms your booking.
         </p>
       </div>
     </div>
@@ -879,9 +627,8 @@ export default function MyBookingsPage() {
   const [activeReview,  setActiveReview]  = useState(null);
   const [actionLoading, setActionLoading] = useState(null);
 
-  // OTP modal state
-  const [otpModal,     setOtpModal]     = useState(null); // { booking, maskedPhone }
-  const [otpSending,   setOtpSending]   = useState(null); // bookingId being processed
+  // Booking confirmation state
+  const [confirming, setConfirming] = useState(null); // bookingId being confirmed
 
   // Reschedule modal state
   const [rescheduleModal, setRescheduleModal] = useState(null); // booking object
@@ -911,25 +658,27 @@ export default function MyBookingsPage() {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  // Step 1: user clicks "Accept" → call send-confirmation-otp, open modal
+  // User clicks "Accept" → run reCAPTCHA v3, then confirm the booking server-side.
   const handleAcceptClick = async (booking) => {
-    setOtpSending(booking._id);
+    setConfirming(booking._id);
+    const toastId = toast.loading("Confirming your booking…");
     try {
-      const res = await sendConfirmationOTP(booking._id);
-      const maskedPhone = res.data.phone || "your registered number";
-      setOtpModal({ booking, maskedPhone });
+      const recaptchaToken = await executeRecaptcha("confirm_booking");
+      const res = await confirmBooking(booking._id, recaptchaToken);
+      setBookings((prev) =>
+        prev.map((b) => (b._id === res.data.booking._id ? res.data.booking : b))
+      );
+      toast.success("Booking confirmed! A worker will be assigned soon. ✅", { id: toastId });
     } catch (err) {
-      toast.error(err?.response?.data?.message || "Failed to send OTP. Please try again.");
+      const msg =
+        err?.response?.data?.message ||
+        (err?.message?.includes("reCAPTCHA")
+          ? "Verification failed. Please try again."
+          : "Failed to confirm booking. Please try again.");
+      toast.error(msg, { id: toastId });
     } finally {
-      setOtpSending(null);
+      setConfirming(null);
     }
-  };
-
-  // Step 2: OTP verified successfully → update booking in list
-  const handleOtpSuccess = (updatedBooking) => {
-    setBookings((prev) =>
-      prev.map((b) => (b._id === updatedBooking._id ? updatedBooking : b))
-    );
   };
 
   // Reschedule success → update booking in list, close modal
@@ -976,7 +725,7 @@ export default function MyBookingsPage() {
   return (
     <div className="min-h-screen bg-bg">
       {/* Header */}
-      <div className="bg-primary text-white">
+      <div className="bg-primary dark:bg-primary-dark text-white">
         <div className="max-w-7xl mx-auto px-5 lg:px-8 py-10 md:py-14">
           <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
             <div>
@@ -1068,7 +817,7 @@ export default function MyBookingsPage() {
                       onAcceptClick={handleAcceptClick}
                       onReject={handleReject}
                       onReschedule={setRescheduleModal}
-                      actionLoading={otpSending}
+                      actionLoading={confirming}
                     />
                   ))}
                 </div>
@@ -1105,7 +854,7 @@ export default function MyBookingsPage() {
                             onAcceptClick={handleAcceptClick}
                             onReject={handleReject}
                             onReschedule={setRescheduleModal}
-                            actionLoading={otpSending}
+                            actionLoading={confirming}
                           />
                         ))}
                       </div>
@@ -1125,16 +874,6 @@ export default function MyBookingsPage() {
           booking={activeReview}
           onClose={() => setActiveReview(null)}
           onSuccess={handleReviewSuccess}
-        />
-      )}
-
-      {/* OTP confirmation modal */}
-      {otpModal && (
-        <OTPConfirmModal
-          booking={otpModal.booking}
-          maskedPhone={otpModal.maskedPhone}
-          onClose={() => setOtpModal(null)}
-          onSuccess={handleOtpSuccess}
         />
       )}
 
