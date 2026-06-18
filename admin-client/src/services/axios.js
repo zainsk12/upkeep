@@ -2,7 +2,12 @@
 
 import axios from "axios";
 
+// baseURL is empty in development → axios uses relative /api/* paths, which the
+// Vite dev-server proxy (/api → localhost:5000) forwards to the local backend.
+// In production, set VITE_API_URL to the deployed backend origin (no trailing
+// slash, no /api suffix) so requests go cross-origin to Railway.
 const api = axios.create({
+  baseURL: import.meta.env.VITE_API_URL || "",
   headers: { "Content-Type": "application/json" },
 });
 

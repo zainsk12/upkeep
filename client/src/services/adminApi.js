@@ -1,11 +1,15 @@
 // client/src/services/adminApi.js
 
 import axios from "axios";
+import env from "../utils/env";
 
 // ── Unauthenticated axios instance (no auth header, no 401 interceptor) ───────
 // Used exclusively for public endpoints that must never trigger the /login
 // redirect for unauthenticated visitors.
+// baseURL is empty in dev (relative paths via Vite proxy); in production it is
+// the deployed backend origin from VITE_API_URL.
 const publicApi = axios.create({
+  baseURL: env.apiBaseUrl,
   headers: { "Content-Type": "application/json" },
 });
 

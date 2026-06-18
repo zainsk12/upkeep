@@ -54,6 +54,13 @@ const env = {
   /** True in a production build */
   isProd: import.meta.env.PROD === true,
 
+  // ── API base URL ──────────────────────────────────────────────────────────
+  // Empty string in development → axios uses relative /api/* paths, which the
+  // Vite dev-server proxy (vite.config.js) forwards to the local backend.
+  // In production, set VITE_API_URL to the deployed backend origin (no trailing
+  // slash, no /api suffix), e.g. https://your-app.up.railway.app
+  apiBaseUrl: import.meta.env.VITE_API_URL || "",
+
   // ── Firebase (Phone Authentication) ───────────────────────────────────────
   firebase: {
     apiKey:     import.meta.env.VITE_FIREBASE_API_KEY,

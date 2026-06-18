@@ -1,14 +1,13 @@
 // admin-client/src/services/api.js
 
-import axios from "axios";
 import api from "./axios";
 
 // ── Auth ───────────────────────────────────────────────────────────────────────
-// Uses plain axios (no token needed for login)
+// Routed through the shared `api` instance so it inherits the production
+// baseURL (VITE_API_URL). The request interceptor only attaches a token when
+// one exists, so this remains effectively tokenless for the login call.
 export const adminLogin = (credentials) =>
-  axios.post("/api/admin/login", credentials, {
-    headers: { "Content-Type": "application/json" },
-  });
+  api.post("/api/admin/login", credentials);
 
 // ── Bookings ───────────────────────────────────────────────────────────────────
 export const getAllBookings = ()          => api.get("/api/admin/bookings");
