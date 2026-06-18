@@ -72,7 +72,18 @@ export default function LoginPage() {
       toast.success("Welcome back!", { id: toastId });
       navigate(from, { replace: true });
     } catch (err) {
-      const msg = err.response?.data?.message || "Invalid credentials. Please try again.";
+      // Only a real 401 from the backend means bad credentials. A missing
+      // response (network/CORS) or a 404 means the request never reached the
+      // auth endpoint — surface that distinctly instead of misreporting it as
+      // "Invalid credentials" (which previously hid the base-URL / 404 bug).
+      let msg;
+      if (!err.response) {
+        msg = "Cannot reach the server. Check your connection and try again.";
+      } else if (err.response.status === 404) {
+        msg = "Login service is unavailable right now. Please try again shortly.";
+      } else {
+        msg = err.response.data?.message || "Invalid credentials. Please try again.";
+      }
       toast.error(msg, { id: toastId });
     } finally {
       setLoading(false);

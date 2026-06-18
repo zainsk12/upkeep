@@ -44,6 +44,23 @@ if (missing.length > 0) {
   );
 }
 
+// ─── API base URL resolution ──────────────────────────────────────────────────
+// Priority:
+//   1. VITE_API_URL — set per-environment (Vercel dashboard / .env).
+//   2. Production build with no VITE_API_URL → fall back to the deployed Railway
+//      backend so the app still works even if the env var was never injected at
+//      build time (this was the cause of the relative-path 404s on /api/*).
+//   3. Development → "" → relative /api/* paths via the Vite proxy (vite.config.js).
+// Any trailing slash or accidental "/api" suffix is stripped so requests resolve
+// to exactly `<origin>/api/...` (guards against trailing-slash / double-/api bugs).
+const PROD_API_FALLBACK = "https://upkeep-production-f476.up.railway.app";
+
+function resolveApiBaseUrl() {
+  const raw = (import.meta.env.VITE_API_URL || "").trim();
+  const base = raw || (import.meta.env.PROD ? PROD_API_FALLBACK : "");
+  return base.replace(/\/+$/, "").replace(/\/api$/i, "");
+}
+
 // ─── Exported config ─────────────────────────────────────────────────────────
 // Consumers import this object instead of calling import.meta.env directly.
 const env = {
@@ -55,11 +72,9 @@ const env = {
   isProd: import.meta.env.PROD === true,
 
   // ── API base URL ──────────────────────────────────────────────────────────
-  // Empty string in development → axios uses relative /api/* paths, which the
-  // Vite dev-server proxy (vite.config.js) forwards to the local backend.
-  // In production, set VITE_API_URL to the deployed backend origin (no trailing
-  // slash, no /api suffix), e.g. https://your-app.up.railway.app
-  apiBaseUrl: import.meta.env.VITE_API_URL || "",
+  // See resolveApiBaseUrl() above. Empty in dev (relative paths via proxy);
+  // VITE_API_URL or the Railway fallback in production.
+  apiBaseUrl: resolveApiBaseUrl(),
 
   // ── Firebase (Phone Authentication) ───────────────────────────────────────
   firebase: {

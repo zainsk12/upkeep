@@ -2,12 +2,23 @@
 
 import axios from "axios";
 
-// baseURL is empty in development → axios uses relative /api/* paths, which the
-// Vite dev-server proxy (/api → localhost:5000) forwards to the local backend.
-// In production, set VITE_API_URL to the deployed backend origin (no trailing
-// slash, no /api suffix) so requests go cross-origin to Railway.
+// ── API base URL resolution ───────────────────────────────────────────────────
+// Priority:
+//   1. VITE_API_URL — set per-environment (Vercel dashboard / .env).
+//   2. Production build with no VITE_API_URL → fall back to the deployed Railway
+//      backend. The admin Vercel project was missing this env var at build time,
+//      so baseURL became "" and /api/admin/login resolved to the Vercel host → 404.
+//      This fallback makes the admin panel work regardless of the dashboard var.
+//   3. Development → "" → relative /api/* paths via the Vite proxy (vite.config.js).
+// Trailing slash / accidental "/api" suffix are stripped to avoid double-/api bugs.
+const PROD_API_FALLBACK = "https://upkeep-production-f476.up.railway.app";
+const rawBase = (import.meta.env.VITE_API_URL || "").trim();
+const baseURL = (rawBase || (import.meta.env.PROD ? PROD_API_FALLBACK : ""))
+  .replace(/\/+$/, "")
+  .replace(/\/api$/i, "");
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || "",
+  baseURL,
   headers: { "Content-Type": "application/json" },
 });
 
