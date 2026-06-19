@@ -138,33 +138,63 @@
   pointer-events: auto !important;
 }
 
-/* ── Close button polish ── */
+/* ── Close button polish ──
+   Sonner's base style pins the close button at top/left:0 and floats it
+   OUTSIDE the corner via `transform: translate(-35%, -35%)`. We reposition
+   it inset in the top-right, so that inherited transform must be cleared —
+   left in place it shoves the X ~7px up/left, cramming it into the rounded
+   top corner where it looks clipped/cut off. `transform: none` fixes it. */
 [data-sonner-toast] [data-close-button] {
-  top: 8px !important;
-  right: 8px !important;
+  top: 10px !important;
+  right: 10px !important;
   left: auto !important;
+  transform: none !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 26px !important;
+  height: 26px !important;
+  min-width: 26px !important;
+  min-height: 26px !important;
+  padding: 0 !important;
+  border-radius: 8px !important;
   background: rgba(255,255,255,0.10) !important;
-  border: 1px solid rgba(255,255,255,0.10) !important;
-  border-radius: 6px !important;
-  color: rgba(255,255,255,0.70) !important;
-  width: 20px !important;
-  height: 20px !important;
-  transition: background 0.15s, color 0.15s;
+  border: 1px solid rgba(255,255,255,0.14) !important;
+  color: rgba(255,255,255,0.75) !important;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+/* Sonner ships the X as a 12px SVG with no CSS sizing rule, so it renders
+   tiny inside the button — scale it up to match the larger button. */
+[data-sonner-toast] [data-close-button] svg {
+  width: 15px !important;
+  height: 15px !important;
 }
 [data-sonner-toast] [data-close-button]:hover {
   background: rgba(255,255,255,0.20) !important;
+  border-color: rgba(255,255,255,0.22) !important;
   color: rgba(255,255,255,0.95) !important;
 }
 
-/* ── Mobile: full-width toasts at bottom ── */
-@media (max-width: 480px) {
+/* ── Mobile (<768px): full-width toasts pinned just below the top bar ──
+   The desktop position is "top-right". Sonner anchors toasts to the TOP of
+   the toaster and stacks them downward, so we MUST keep a top anchor on
+   mobile — relocating the container to the bottom (the previous approach)
+   left Sonner stacking toasts off the bottom edge of the screen.
+   Instead: keep the top anchor, go full-width with safe side gutters, and
+   push the container below the mobile top bar (lg:hidden header, h-14 ≈
+   56px) so toasts are never hidden behind it. Respects the top safe-area
+   inset. Desktop (≥768px) is untouched → original top-right behaviour kept. */
+@media (max-width: 767px) {
   [data-sonner-toaster] {
-    inset: auto 0 env(safe-area-inset-bottom,12px) 0 !important;
+    top: calc(env(safe-area-inset-top, 0px) + 66px) !important;
+    bottom: auto !important;
     left: 12px !important;
     right: 12px !important;
     width: auto !important;
   }
   [data-sonner-toast] {
     width: 100% !important;
+    left: 0 !important;
+    right: 0 !important;
   }
 }
