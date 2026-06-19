@@ -14,9 +14,10 @@ import {
 
 /* ─── How it works steps ─────────────────────────────── */
 const STEPS = [
-  { num: "01", icon: Search,         title: "Choose a Service", desc: "Browse our curated list of professional home services." },
-  { num: "02", icon: CalendarCheck2, title: "Book a Slot",      desc: "Select your preferred date, time, and location."       },
-  { num: "03", icon: BadgeCheck,     title: "Job Done",         desc: "A verified expert arrives and completes the work."     },
+  { num: "01", icon: Search,          title: "Choose a Service",        desc: "Browse our professional home service categories."                          },
+  { num: "02", icon: BadgeDollarSign, title: "Receive a Quote",         desc: "Our team reviews your request and provides a transparent estimate."         },
+  { num: "03", icon: UserPlus,        title: "Confirm & Get Assigned",  desc: "Confirm the quote and receive details of your assigned professional."       },
+  { num: "04", icon: CheckCircle2,    title: "Service Completed",       desc: "Your verified professional arrives and completes the work."                 },
 ];
 
 /* ─── Why choose us — 6 cards ────────────────────────── */
@@ -633,13 +634,13 @@ export default function LandingPage() {
               text-xs font-semibold uppercase tracking-widest mb-4">
               Simple Process
             </span>
-            <h2 className="text-3xl md:text-4xl font-bold text-text landing-heading">How It Works</h2>
-            <p className="text-muted text-sm mt-3 max-w-xs mx-auto">
-              Three steps to a cleaner, better home.
+            <h2 className="text-3xl md:text-4xl font-bold text-text landing-heading">How UpKeep Works</h2>
+            <p className="text-muted text-sm mt-3 max-w-sm mx-auto">
+              Simple, transparent service booking in four easy steps.
             </p>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-5 sm:gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 sm:gap-6">
             {STEPS.map(({ num, icon: Icon, title, desc }, i) => (
               <div
                 key={i}
@@ -662,7 +663,7 @@ export default function LandingPage() {
                 <h3 className="text-text font-bold text-lg mb-2">{title}</h3>
                 <p className="text-muted text-sm leading-relaxed">{desc}</p>
                 {i < STEPS.length - 1 && (
-                  <div className="hidden md:block absolute top-10 -right-2.5 w-5 h-px bg-border" />
+                  <div className="hidden lg:block absolute top-10 -right-2.5 w-5 h-px bg-border" />
                 )}
               </div>
             ))}
