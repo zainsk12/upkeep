@@ -4,7 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import useReveal from "../hooks/useReveal";
 import useCountUp from "../hooks/useCountUp";
 import { fetchHomepageReviews, fetchReviewStats } from "../services/reviewApi";
-import { getPublicServices, getSiteConfig } from "../services/adminApi";
+import { getPublicServices } from "../services/adminApi";
 import {
   Search, CalendarCheck2, BadgeCheck,
   MapPin, Phone, Mail,
@@ -472,20 +472,6 @@ export default function LandingPage() {
   const whyUs      = useReveal();
   const cta        = useReveal();
 
-  const [siteConfig, setSiteConfig] = useState({
-    businessName: "UpKeep",
-    tagline:      "by Austrum",
-    city:         "Nashik, Maharashtra",
-    phone:        "+91 98765 43210",
-    email:        "support@austrum.in",
-  });
-
-  useEffect(() => {
-    getSiteConfig()
-      .then((res) => setSiteConfig(res.data))
-      .catch(() => { /* keep defaults */ });
-  }, []);
-
   return (
     <div className="bg-bg">
 
@@ -832,68 +818,153 @@ export default function LandingPage() {
       )}
 
       {/* ── FOOTER ── */}
-      <footer className="bg-primary-dark text-white/40" style={{ background: "var(--primary-dark)" }}>
-        <div className="max-w-7xl mx-auto px-6 lg:px-8 pt-14 pb-10 grid sm:grid-cols-2 md:grid-cols-3 gap-10">
+      <footer id="site-footer" className="bg-primary-dark text-white/40" style={{ background: "var(--primary-dark)" }}>
 
-          {/* Brand column */}
-          <div className="md:col-span-1">
-            <div className="flex items-center gap-3 mb-4">
+        {/* Trust indicators strip */}
+        <div className="border-b border-white/[0.07]">
+          <div className="max-w-7xl mx-auto px-6 lg:px-8 py-6 grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
+            {[
+              { icon: ShieldCheck,     label: "Verified Professionals"      },
+              { icon: BadgeDollarSign, label: "Transparent Pricing"         },
+              { icon: BadgeCheck,      label: "Background Checked Experts"   },
+              { icon: HeadphonesIcon,  label: "Customer Support"            },
+            ].map(({ icon: Icon, label }) => (
+              <div key={label} className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-white/[0.06] border border-white/[0.08]
+                  flex items-center justify-center flex-shrink-0">
+                  <Icon size={16} className="text-accent/80" strokeWidth={2} />
+                </div>
+                <span className="text-white/55 text-xs sm:text-sm font-medium leading-tight">{label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Main — 4 columns */}
+        <div className="max-w-7xl mx-auto px-6 lg:px-8 pt-12 pb-10
+          grid grid-cols-2 md:grid-cols-4 gap-8 md:gap-10">
+
+          {/* Column 1 — Brand */}
+          <div className="col-span-2 md:col-span-1">
+            <Link to="/" className="flex items-center gap-2.5 group mb-4 w-fit">
               <img
                 src="/upkeep_logo.png"
                 alt="UpKeep by Austrum"
-                className="h-10 w-10 rounded-full object-cover border border-white/20 shadow-sm"
+                className="h-10 w-10 rounded-full object-cover border-2 border-white/20 shadow-sm
+                  group-hover:border-white/50 transition-all duration-200 flex-shrink-0"
               />
-              <div className="flex flex-col justify-center">
-                <div className="text-white font-bold text-base leading-tight nav-brand">
-                  {siteConfig.businessName}
-                </div>
-                <div className="text-white/35 text-[10px] font-medium tracking-[0.12em] uppercase leading-none mt-0.5">
-                  {siteConfig.tagline}
-                </div>
-              </div>
-            </div>
+              <span className="flex flex-col justify-center">
+                <span className="text-white text-xl leading-tight nav-brand">UpKeep</span>
+                <span className="text-white/35 text-[9px] font-medium leading-none tracking-[0.12em] uppercase">
+                  by Austrum
+                </span>
+              </span>
+            </Link>
             <p className="text-sm leading-relaxed text-white/40 max-w-xs">
-              Nashik's trusted home services — delivered with professionalism and care.
+              Professional home services platform connecting customers with verified service experts.
             </p>
           </div>
 
-          {/* Quick Links */}
+          {/* Column 2 — Services */}
           <div>
-            <h4 className="text-white/60 font-semibold mb-4 text-xs uppercase tracking-widest">Quick Links</h4>
+            <h4 className="text-white/60 font-semibold mb-4 text-xs uppercase tracking-widest">Services</h4>
             <ul className="space-y-2.5 text-sm">
-              {[["Services", "/services"], ["My Bookings", "/my-bookings"], ["Login", "/login"], ["Sign Up", "/signup"]].map(([l, h]) => (
-                <li key={l}>
-                  <Link
-                    to={h}
-                    className="text-white/40 hover:text-white transition-colors duration-150"
-                  >
-                    {l}
+              {["AC Service", "Electrical", "Carpentry", "Cleaning"].map((label) => (
+                <li key={label}>
+                  <Link to="/services" className="text-white/40 hover:text-white transition-colors duration-150">
+                    {label}
                   </Link>
                 </li>
               ))}
+              <li>
+                <Link
+                  to="/services"
+                  className="inline-flex items-center gap-1 text-accent/80 hover:text-accent
+                    font-medium transition-colors duration-150"
+                >
+                  View All Services <ArrowRight size={12} strokeWidth={2.5} />
+                </Link>
+              </li>
             </ul>
           </div>
 
-          {/* Contact */}
+          {/* Column 3 — Quick Links */}
+          <div>
+            <h4 className="text-white/60 font-semibold mb-4 text-xs uppercase tracking-widest">Quick Links</h4>
+            <ul className="space-y-2.5 text-sm">
+              {[
+                ["Home", "/"],
+                ["Services", "/services"],
+                ["My Bookings", "/my-bookings"],
+                ["Reviews", "/reviews"],
+              ].map(([label, href]) => (
+                <li key={label}>
+                  <Link to={href} className="text-white/40 hover:text-white transition-colors duration-150">
+                    {label}
+                  </Link>
+                </li>
+              ))}
+              <li>
+                <a
+                  href="mailto:upkeep.austrum@gmail.com"
+                  className="text-white/40 hover:text-white transition-colors duration-150"
+                >
+                  Contact Us
+                </a>
+              </li>
+
+              {/* Auth-aware links */}
+              {isLoggedIn ? (
+                <li>
+                  <Link to="/profile" className="text-white/40 hover:text-white transition-colors duration-150">
+                    My Profile
+                  </Link>
+                </li>
+              ) : (
+                <>
+                  <li>
+                    <Link to="/login" className="text-white/40 hover:text-white transition-colors duration-150">
+                      Login
+                    </Link>
+                  </li>
+                  <li>
+                    <Link to="/signup" className="text-white/40 hover:text-white transition-colors duration-150">
+                      Sign Up
+                    </Link>
+                  </li>
+                </>
+              )}
+            </ul>
+          </div>
+
+          {/* Column 4 — Contact */}
           <div>
             <h4 className="text-white/60 font-semibold mb-4 text-xs uppercase tracking-widest">Contact</h4>
-            <ul className="space-y-2.5 text-sm text-white/40">
-              <li className="flex items-center gap-2.5">
-                <MapPin size={13} className="text-accent/60 flex-shrink-0" /> {siteConfig.city}
+            <ul className="space-y-3 text-sm text-white/40">
+              <li>
+                <a href="tel:+919552263644" className="flex items-start gap-2.5 hover:text-white transition-colors duration-150">
+                  <Phone size={14} className="text-accent/70 flex-shrink-0 mt-0.5" strokeWidth={2} />
+                  <span>+91 9552263644</span>
+                </a>
               </li>
-              <li className="flex items-center gap-2.5">
-                <Phone size={13} className="text-accent/60 flex-shrink-0" /> {siteConfig.phone}
+              <li>
+                <a href="mailto:upkeep.austrum@gmail.com" className="flex items-start gap-2.5 hover:text-white transition-colors duration-150 break-all">
+                  <Mail size={14} className="text-accent/70 flex-shrink-0 mt-0.5" strokeWidth={2} />
+                  <span>upkeep.austrum@gmail.com</span>
+                </a>
               </li>
-              <li className="flex items-center gap-2.5">
-                <Mail size={13} className="text-accent/60 flex-shrink-0" /> {siteConfig.email}
+              <li className="flex items-start gap-2.5">
+                <MapPin size={14} className="text-accent/70 flex-shrink-0 mt-0.5" strokeWidth={2} />
+                <span>Nashik, Maharashtra</span>
               </li>
             </ul>
           </div>
         </div>
 
+        {/* Bottom bar */}
         <div className="border-t border-white/[0.07] py-5">
           <div className="max-w-7xl mx-auto px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-white/25">
-            <span>© {new Date().getFullYear()} Austrum. All rights reserved.</span>
+            <span>© {new Date().getFullYear()} UpKeep by Austrum. All rights reserved.</span>
             <span className="text-white/15">Part of the Austrum family of products</span>
           </div>
         </div>
