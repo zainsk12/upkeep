@@ -86,7 +86,12 @@ router.post("/register", registerLimiter, async (req, res) => {
     if (!password || password.length < 8)
       return res.status(400).json({ message: "Password must be at least 8 characters." });
 
-    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+    // Email is OPTIONAL. Normalise blank/whitespace to "no email" and only
+    // validate the format when an actual value was supplied.
+    const cleanEmail =
+      email && email.trim() ? email.trim().toLowerCase() : null;
+
+    if (cleanEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail))
       return res.status(400).json({ message: "Enter a valid email address." });
 
     // ── Verify Firebase phone authentication ──────────────────────────────────
@@ -116,21 +121,26 @@ router.post("/register", registerLimiter, async (req, res) => {
     if (uidExists)
       return res.status(409).json({ message: "This phone is already linked to an account. Please log in." });
 
-    if (email) {
-      const emailExists = await User.findOne({ email: email.toLowerCase() });
+    if (cleanEmail) {
+      const emailExists = await User.findOne({ email: cleanEmail });
       if (emailExists)
         return res.status(409).json({ message: "Email is already associated with another account." });
     }
 
     // ── Create user ─────────────────────────────────────────────────────────
-    const user = await User.create({
+    // Build the payload conditionally: when no email was supplied the field is
+    // omitted entirely (never stored as null), so the partial unique index
+    // correctly ignores email-less accounts.
+    const userData = {
       name:            name.trim(),
       phone:           normalised,
-      email:           email ? email.toLowerCase() : null,
       password,
       firebaseUid:     verified.uid,
       isPhoneVerified: true,
-    });
+    };
+    if (cleanEmail) userData.email = cleanEmail;
+
+    const user = await User.create(userData);
 
     const token = signSessionToken(user);
 

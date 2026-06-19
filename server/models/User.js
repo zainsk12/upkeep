@@ -3,8 +3,11 @@
 // Migration notes:
 //   • phone is now UNIQUE — run a one-time deduplication script on existing data
 //     if multiple users share the same phone number.
-//   • email is now OPTIONAL with a SPARSE unique index
-//     (sparse = multiple NULL values allowed, but non-null emails must be unique).
+//   • email is now OPTIONAL with a PARTIAL unique index
+//     (only documents where email is an actual string are indexed, so any number
+//     of users may have NO email while non-null emails stay unique).
+//     NOTE: a partial index — not sparse — is required here. A sparse index still
+//     indexes documents that store `email: null`, which collide on the second null.
 //   • isPhoneVerified defaults to false — existing users will have false until they
 //     re-verify or you set it via a migration script.
 
@@ -29,13 +32,17 @@ const userSchema = new mongoose.Schema(
     },
 
     // ── Email: optional secondary identifier ───────────────────────────────
-    // sparse: true → multiple documents can have email: null / undefined
-    // while still enforcing uniqueness for non-null values.
+    // No `default` — when omitted the field is absent entirely (never stored as
+    // null), so the partial unique index below ignores email-less accounts.
     email: {
       type:      String,
       lowercase: true,
       trim:      true,
-      default:   null,
+      validate: {
+        // Only validates when a value is present; absent email is always valid.
+        validator: (v) => v == null || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v),
+        message:   "Enter a valid email address.",
+      },
     },
 
     password: {
@@ -73,8 +80,13 @@ const userSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Sparse unique index for email (allows multiple nulls)
-userSchema.index({ email: 1 }, { unique: true, sparse: true });
+// Partial unique index for email: only indexes documents whose email is a real
+// string, so unlimited users may have NO email while non-null emails stay unique.
+// (A sparse index would still index `email: null` and collide on the 2nd null.)
+userSchema.index(
+  { email: 1 },
+  { unique: true, partialFilterExpression: { email: { $type: "string" } } }
+);
 // Sparse unique index for Firebase UID (allows multiple nulls)
 userSchema.index({ firebaseUid: 1 }, { unique: true, sparse: true });
 
