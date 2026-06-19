@@ -6,7 +6,6 @@ const Settings = require("../models/Settings");
 const { validateBookingDateTime } = require("../utils/bookingValidation"); // ← MODULE 2
 const { generateUniqueBookingId } = require("../utils/bookingId");
 const { verifyRecaptcha } = require("../services/recaptchaService");
-const { sendBookingConfirmationEmail } = require("../services/emailService");
 
 // ── POST /api/bookings ─────────────────────────────────────────────────────────
 const createBooking = async (req, res) => {
@@ -97,10 +96,18 @@ const getMyBookings = async (req, res) => {
 //   • success → status becomes "confirmed" + confirmation email is sent
 //   • failure → status stays "awaiting_user_confirmation", no email, error returned
 const confirmBooking = async (req, res) => {
+  // ── TIMING INSTRUMENTATION (diagnostic) ───────────────────────────────────
+  // Measures each major step and logs a single structured line to Railway logs.
+  // Logging only — does not change behaviour. Remove once the bottleneck is fixed.
+  const T = {};
+  const reqStart = Date.now();
+  let mark = Date.now();
+  const lap = (key) => { T[key] = Date.now() - mark; mark = Date.now(); };
   try {
     const { recaptchaToken } = req.body;
 
     const booking = await Booking.findById(req.params.id);
+    lap("db_findById_ms");
     if (!booking) return res.status(404).json({ message: "Booking not found." });
 
     // Ownership check
@@ -127,6 +134,7 @@ const confirmBooking = async (req, res) => {
       "confirm_booking",
       req.ip
     );
+    lap("recaptcha_verify_ms");
     if (!captcha.success) {
       // Leave the booking untouched — do NOT confirm, do NOT email.
       return res.status(400).json({
@@ -134,23 +142,17 @@ const confirmBooking = async (req, res) => {
       });
     }
 
-    // ✅ Verified — confirm the booking
+    // ✅ Verified — confirm the booking.
+    // NOTE: the customer notification email is intentionally NOT sent here.
+    // Per the updated flow, the email is sent only once a worker has been
+    // assigned to the booking (see adminController.updateBooking).
     booking.status = "confirmed";
     await booking.save();
-
-    // Send confirmation email (best-effort: a mail failure must not un-confirm
-    // the booking the user just successfully confirmed). req.user is the full
-    // User document (name + email) from the auth middleware.
-    try {
-      await sendBookingConfirmationEmail(
-        { name: req.user.name, email: req.user.email },
-        booking
-      );
-    } catch (mailErr) {
-      console.error("Booking confirmed but email failed:", mailErr.message);
-    }
+    lap("db_save_ms");
 
     res.json({ message: "Booking confirmed successfully!", booking });
+    T.total_handler_ms = Date.now() - reqStart;
+    console.log("[TIMING] confirmBooking", JSON.stringify(T));
   } catch (err) {
     console.error("confirmBooking error:", err.message);
     res.status(500).json({ message: "Server error. Please try again." });

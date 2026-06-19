@@ -662,9 +662,21 @@ export default function MyBookingsPage() {
   const handleAcceptClick = async (booking) => {
     setConfirming(booking._id);
     const toastId = toast.loading("Confirming your booking…");
+    // TIMING INSTRUMENTATION (diagnostic) — measures the two client-side waits:
+    // reCAPTCHA token generation, and the round-trip to the confirm endpoint.
+    // Logging only; remove once the bottleneck is fixed.
+    const tClickStart = performance.now();
     try {
+      const tRecaptchaStart = performance.now();
       const recaptchaToken = await executeRecaptcha("confirm_booking");
+      const recaptchaMs = Math.round(performance.now() - tRecaptchaStart);
+      const tApiStart = performance.now();
       const res = await confirmBooking(booking._id, recaptchaToken);
+      const apiMs = Math.round(performance.now() - tApiStart);
+      console.log(
+        `[TIMING] confirmBooking client: recaptcha_token_ms=${recaptchaMs} ` +
+        `api_roundtrip_ms=${apiMs} total_ms=${Math.round(performance.now() - tClickStart)}`
+      );
       setBookings((prev) =>
         prev.map((b) => (b._id === res.data.booking._id ? res.data.booking : b))
       );

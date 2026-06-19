@@ -57,6 +57,15 @@ const { initFirebase } = require("./services/firebaseAdmin");
 // Initialize Firebase Admin SDK at startup (verifies credentials are loadable).
 initFirebase();
 
+// Warm the pooled SMTP transport at startup so the first booking confirmation
+// reuses an already-authenticated connection (no cold connect on the hot path).
+// Guarded: if email isn't configured we log and continue — it must not crash boot.
+try {
+  require("./services/emailService").warmEmailTransport();
+} catch (e) {
+  console.error("[EMAIL] Warm-up skipped:", e.message);
+}
+
 // ── Force public DNS for MongoDB Atlas SRV resolution ────────────────────────
 // Windows and some ISP resolvers refuse SRV record lookups (ECONNREFUSED on
 // querySrv). Overriding to Google + Cloudflare public DNS resolves this before

@@ -6,6 +6,8 @@ const Worker   = require("../models/Worker");
 const Review   = require("../models/Review");   // MODULE 6
 const Settings = require("../models/Settings"); // MODULE 6: threshold persistence
 const isValidId = require("../utils/isValidObjectId");
+const { generateUniqueBookingId } = require("../utils/bookingId");
+const { sendWorkerAssignedEmail } = require("../services/emailService");
 
 // ── GET /api/admin/bookings ────────────────────────────────────────────────────
 const getAllBookings = async (req, res) => {
@@ -31,6 +33,12 @@ const updateBooking = async (req, res) => {
 
     const booking = await Booking.findById(id);
     if (!booking) return res.status(404).json({ message: "Booking not found." });
+
+    // Worker-assignment email is sent out-of-band after save (see end of handler).
+    // These capture whether THIS request newly assigned/changed the worker, so the
+    // email fires exactly once per assignment and never duplicates on no-op saves.
+    let shouldSendAssignmentEmail = false;
+    let assignedWorkerDoc = null;
 
     // ── Set quotation ──────────────────────────────────────────────────────────
     if (quotation !== undefined) {
@@ -101,6 +109,10 @@ const updateBooking = async (req, res) => {
           ? (req.body.adminPhone || "").trim() || worker.phone
           : worker.phone;
 
+      // Capture the previously-assigned worker BEFORE overwriting, so we only
+      // notify the customer when the assignment is actually new or changed.
+      const prevWorkerId = booking.assignedWorker?.workerId?.toString() || null;
+
       booking.assignedWorker = {
         workerId: worker._id,
         name:     worker.name,
@@ -112,6 +124,19 @@ const updateBooking = async (req, res) => {
       // read the plain string field directly still receive the correct name.
       // New code should read booking.workerName (virtual) instead.
       booking.worker = worker.name;
+
+      // Trigger the customer email only on a genuine (re)assignment — repeat
+      // PATCHes with the same worker won't re-send, preventing duplicates.
+      if (prevWorkerId !== worker._id.toString()) {
+        shouldSendAssignmentEmail = true;
+        assignedWorkerDoc = worker;
+
+        // Backfill a booking reference for legacy records (pre-`bookingId`) so
+        // the email never shows "Booking ID: undefined". Persisted on save below.
+        if (!booking.bookingId) {
+          booking.bookingId = await generateUniqueBookingId(Booking);
+        }
+      }
     }
 
     // ── Mark completed ─────────────────────────────────────────────────────────
@@ -148,6 +173,20 @@ const updateBooking = async (req, res) => {
     await booking.populate("userId", "name email phone");
 
     res.json({ message: "Booking updated.", booking });
+
+    // ── Customer notification (worker assigned) ─────────────────────────────────
+    // Sent AFTER the response (fire-and-forget) so the admin action is never
+    // blocked by SMTP latency, and only when a worker was newly assigned/changed.
+    if (shouldSendAssignmentEmail) {
+      const customer = booking.userId; // populated above: { name, email, phone }
+      sendWorkerAssignedEmail(
+        { name: customer?.name, email: customer?.email },
+        booking,
+        assignedWorkerDoc
+      ).catch((mailErr) => {
+        console.error("Worker assigned but email failed:", mailErr.message);
+      });
+    }
   } catch (err) {
     console.error("updateBooking error:", err.message);
     res.status(500).json({ message: "Server error." });
