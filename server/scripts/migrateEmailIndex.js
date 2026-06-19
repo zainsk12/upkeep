@@ -9,12 +9,18 @@
 //   E11000 duplicate key error … index: email_1 dup key: { email: null }
 // A partial index ( email is a string ) ignores null/missing emails entirely.
 //
-// Run once after deploying the updated User model:
+// Run once after deploying the updated User model, from anywhere:
+//   npm run migrate:email-index        (from server/)
 //   node server/scripts/migrateEmailIndex.js
 //
-// Requires MONGO_URI (or MONGODB_URI) in the environment / .env.
+// Requires MONGO_URI (or MONGODB_URI) in the environment / server/.env.
+// On Railway, run via:  railway run npm run migrate:email-index
 
-require("dotenv").config();
+const path = require("path");
+// Resolve server/.env relative to THIS file so the script works regardless of
+// the current working directory. Railway/inline env vars still take precedence
+// (dotenv never overrides variables that are already set).
+require("dotenv").config({ path: path.resolve(__dirname, "..", ".env") });
 const mongoose = require("mongoose");
 
 const MONGO_URI = process.env.MONGO_URI || process.env.MONGODB_URI;
