@@ -241,6 +241,50 @@
   100% { background-position: -100% 0; }
 }
 
+/* ── Scroll-reveal (IntersectionObserver-driven, see hooks/useReveal.js) ─────
+   Elements start hidden and animate up + fade in once `.is-visible` is added.
+   Applied to lightweight wrapper elements for card grids so it never fights the
+   cards' own hover transforms. GPU-friendly (opacity + transform only). */
+.reveal { opacity: 0; }
+.reveal.is-visible {
+  animation: revealUp 0.6s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+@keyframes revealUp {
+  from { opacity: 0; transform: translateY(30px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Hero ambient background motion — extremely subtle, GPU transforms only ──
+   Two large blurred radial blobs that drift slowly behind the hero content.
+   Low opacity preserves text readability; translate3d keeps it off the main
+   thread. Sits above the dark overlay but below the (relative, z-10) content. */
+.hero-blob {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(64px);
+  opacity: 0.08;
+  will-change: transform;
+}
+.hero-blob-1 {
+  width: 360px; height: 360px; top: -90px; left: -70px;
+  background: radial-gradient(circle, var(--accent, #fbe7d3) 0%, transparent 70%);
+  animation: heroFloat1 18s ease-in-out infinite;
+}
+.hero-blob-2 {
+  width: 460px; height: 460px; bottom: -140px; right: -90px;
+  background: radial-gradient(circle, #3aa0c4 0%, transparent 70%);
+  animation: heroFloat2 22s ease-in-out infinite;
+}
+@keyframes heroFloat1 { 0%, 100% { transform: translate3d(0, 0, 0); } 50% { transform: translate3d(22px, 16px, 0); } }
+@keyframes heroFloat2 { 0%, 100% { transform: translate3d(0, 0, 0); } 50% { transform: translate3d(-26px, -18px, 0); } }
+
+/* Respect reduced-motion: reveal everything statically, freeze ambient motion. */
+@media (prefers-reduced-motion: reduce) {
+  .reveal,
+  .reveal.is-visible { opacity: 1 !important; animation: none !important; transform: none !important; }
+  .hero-blob { animation: none !important; }
+}
+
 /* ── Sonner toast: non-blocking container ──────────────────────────────────
    The toaster section sits over the UI but must not swallow pointer events.
    Only the individual toast cards intercept clicks (X button, links, etc.)

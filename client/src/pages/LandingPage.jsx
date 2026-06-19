@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import useReveal from "../hooks/useReveal";
+import useCountUp from "../hooks/useCountUp";
 import { fetchHomepageReviews, fetchReviewStats } from "../services/reviewApi";
 import { getPublicServices, getSiteConfig } from "../services/adminApi";
 import {
@@ -19,6 +21,39 @@ const STEPS = [
   { num: "03", icon: UserPlus,        title: "Confirm & Get Assigned",  desc: "Confirm the quote and receive details of your assigned professional."       },
   { num: "04", icon: CheckCircle2,    title: "Service Completed",       desc: "Your verified professional arrives and completes the work."                 },
 ];
+
+/* ─── Reveal wrapper ─────────────────────────────────────
+   Wraps content (or a card) and fades it up when `show` is true. Used on a
+   wrapper element so it never conflicts with a child card's hover transform.
+   `delay` (ms) drives staggered grid reveals. */
+function Reveal({ show, delay = 0, as: Tag = "div", className = "", children, ...rest }) {
+  return (
+    <Tag
+      className={`${className} reveal${show ? " is-visible" : ""}`}
+      style={delay ? { animationDelay: `${delay}ms` } : undefined}
+      {...rest}
+    >
+      {children}
+    </Tag>
+  );
+}
+
+/* ─── Count-up stat ──────────────────────────────────────
+   Parses a stat string ("1000+", "4.9", "100+") and animates the numeric part
+   from 0 → target once `start` is true, preserving any suffix and decimals.
+   tabular-nums keeps the width stable so there is no layout shift. */
+function CountUpStat({ value, start, className = "" }) {
+  const match = String(value).match(/^(\d+(?:\.\d+)?)(.*)$/);
+  const target = match ? parseFloat(match[1]) : 0;
+  const suffix = match ? match[2] : "";
+  const decimals = match && match[1].includes(".") ? match[1].split(".")[1].length : 0;
+
+  const current = useCountUp(target, { start, duration: 1500 });
+  if (!match) return <span className={className}>{value}</span>;
+
+  const display = decimals > 0 ? current.toFixed(decimals) : String(Math.round(current));
+  return <span className={`tabular-nums ${className}`}>{display}{suffix}</span>;
+}
 
 /* ─── Why choose us — 6 cards ────────────────────────── */
 const WHY_US = [
@@ -105,8 +140,8 @@ function StarDisplay({ rating, max = 5 }) {
 /* ─── Single testimonial card ────────────────────────── */
 function TestimonialCard({ name, rating, comment, serviceType, initial, bg, color }) {
   return (
-    <div className="bg-card border border-border rounded-2xl p-6 flex flex-col gap-4
-      hover:shadow-lg hover:-translate-y-1 transition-all duration-300 relative group"
+    <div className="bg-card border border-border rounded-2xl p-6 h-full flex flex-col gap-4
+      hover:shadow-lg hover:-translate-y-1 will-change-transform transition-all duration-300 relative group"
       style={{ boxShadow: "0 2px 12px rgba(0,0,0,0.04)" }}
     >
       <Quote
@@ -143,6 +178,7 @@ function TestimonialCard({ name, rating, comment, serviceType, initial, bg, colo
 function TestimonialsSection() {
   const [testimonials, setTestimonials] = useState([]);
   const [loading, setLoading]           = useState(true);
+  const { ref, isVisible } = useReveal();
 
   useEffect(() => {
     let cancelled = false;
@@ -178,11 +214,11 @@ function TestimonialsSection() {
   }, []);
 
   return (
-    <section className="py-20 bg-bg">
+    <section ref={ref} className="py-20 bg-bg">
       <div className="max-w-7xl mx-auto px-6 lg:px-8">
 
         {/* Section header */}
-        <div className="text-center mb-14">
+        <Reveal show={isVisible} className="text-center mb-14">
           <span className="inline-block px-3 py-1 rounded-full bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400
             text-xs font-semibold uppercase tracking-widest border border-amber-100 dark:border-amber-800/40 mb-4">
             Customer Reviews
@@ -203,7 +239,7 @@ function TestimonialsSection() {
             <span className="text-text font-bold text-sm">4.9</span>
             <span className="text-muted text-sm">/ 5 — based on 10,000+ reviews</span>
           </div>
-        </div>
+        </Reveal>
 
         {/* Loading skeleton */}
         {loading ? (
@@ -251,7 +287,9 @@ function TestimonialsSection() {
         ) : (
           <div className="grid md:grid-cols-3 gap-6">
             {testimonials.map((t, i) => (
-              <TestimonialCard key={i} {...t} />
+              <Reveal key={i} show={isVisible} delay={i * 90} className="h-full">
+                <TestimonialCard {...t} />
+              </Reveal>
             ))}
           </div>
         )}
@@ -263,8 +301,9 @@ function TestimonialsSection() {
               to="/reviews"
               className="inline-flex items-center gap-2 px-6 py-3 rounded-full
                 bg-card border border-border text-text hover:border-primary/25 hover:text-primary
-                font-semibold text-sm hover:-translate-y-0.5 transition-all duration-200
-                shadow-sm hover:shadow-md"
+                font-semibold text-sm hover:-translate-y-0.5 hover:scale-[1.02] active:scale-95
+                will-change-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30
+                transition-all duration-200 shadow-sm hover:shadow-md"
             >
               View All Reviews <ArrowRight size={14} strokeWidth={2.5} />
             </Link>
@@ -305,6 +344,7 @@ function getHomepageServiceMeta(name = "") {
 function HomepageServicesSection() {
   const [services, setServices] = useState([]);
   const [loading, setLoading]   = useState(true);
+  const { ref, isVisible } = useReveal();
 
   useEffect(() => {
     let cancelled = false;
@@ -324,8 +364,8 @@ function HomepageServicesSection() {
   }, []);
 
   return (
-    <section className="max-w-7xl mx-auto px-6 lg:px-8 py-16 md:py-20">
-      <div className="text-center mb-12">
+    <section ref={ref} className="max-w-7xl mx-auto px-6 lg:px-8 py-16 md:py-20">
+      <Reveal show={isVisible} className="text-center mb-12">
         <span className="inline-block px-3 py-1 rounded-full bg-primary/8 text-primary
           text-xs font-semibold uppercase tracking-widest mb-4">
           What We Offer
@@ -334,7 +374,7 @@ function HomepageServicesSection() {
         <p className="text-muted mt-3 max-w-md mx-auto text-sm leading-relaxed">
           From quick repairs to complete home transformations.
         </p>
-      </div>
+      </Reveal>
 
       {loading ? (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
@@ -348,34 +388,37 @@ function HomepageServicesSection() {
         </div>
       ) : services.length === 0 ? null : (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-          {services.map((dbSvc) => {
+          {services.map((dbSvc, i) => {
             const { icon: Icon, bg, color } = getHomepageServiceMeta(dbSvc.name);
             const description = (dbSvc.description && dbSvc.description.trim())
               ? dbSvc.description
               : "";
 
             return (
-              <Link
-                key={dbSvc._id || dbSvc.name}
-                to="/services"
-                className="group bg-card rounded-2xl p-4 sm:p-5 text-center border border-border
-                  hover:shadow-xl hover:shadow-primary/[0.10] hover:-translate-y-2 hover:border-primary/20
-                  transition-all duration-300 shadow-sm"
-                style={{ boxShadow: "0 2px 8px rgba(8,53,74,0.05)" }}
-              >
-                <div
-                  className={`w-11 h-11 sm:w-12 sm:h-12 rounded-xl ${bg} flex items-center justify-center
-                    mx-auto mb-3 group-hover:scale-105 transition-transform duration-300`}
+              <Reveal key={dbSvc._id || dbSvc.name} show={isVisible} delay={i * 90} className="h-full">
+                <Link
+                  to="/services"
+                  className="group block h-full bg-card rounded-2xl p-4 sm:p-5 text-center border border-border
+                    hover:shadow-xl hover:shadow-primary/[0.10] hover:-translate-y-2 hover:border-primary/20
+                    active:translate-y-0 active:scale-[0.99] will-change-transform
+                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30
+                    transition-all duration-300 shadow-sm"
+                  style={{ boxShadow: "0 2px 8px rgba(8,53,74,0.05)" }}
                 >
-                  <Icon size={20} className={color} strokeWidth={1.8} />
-                </div>
-                <div className="font-semibold text-text text-xs sm:text-sm">{dbSvc.name}</div>
-                {description && (
-                  <div className="text-muted text-xs mt-1 leading-relaxed line-clamp-2 hidden sm:block">
-                    {description}
+                  <div
+                    className={`w-11 h-11 sm:w-12 sm:h-12 rounded-xl ${bg} flex items-center justify-center
+                      mx-auto mb-3 group-hover:scale-110 transition-transform duration-300`}
+                  >
+                    <Icon size={20} className={color} strokeWidth={1.8} />
                   </div>
-                )}
-              </Link>
+                  <div className="font-semibold text-text text-xs sm:text-sm">{dbSvc.name}</div>
+                  {description && (
+                    <div className="text-muted text-xs mt-1 leading-relaxed line-clamp-2 hidden sm:block">
+                      {description}
+                    </div>
+                  )}
+                </Link>
+              </Reveal>
             );
           })}
         </div>
@@ -387,8 +430,9 @@ function HomepageServicesSection() {
           to="/services"
           className="inline-flex items-center gap-2 px-6 py-3 rounded-full
             bg-card border border-border text-text hover:border-primary/25 hover:text-primary
-            font-semibold text-sm hover:-translate-y-0.5 transition-all duration-200
-            shadow-sm hover:shadow-md"
+            font-semibold text-sm hover:-translate-y-0.5 hover:scale-[1.02] active:scale-95
+            will-change-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30
+            transition-all duration-200 shadow-sm hover:shadow-md"
         >
           View All Services <ArrowRight size={14} strokeWidth={2.5} />
         </Link>
@@ -421,6 +465,12 @@ export default function LandingPage() {
   }, []);
 
   const displayRating = avgRating ?? HERO_RATING_FALLBACK;
+
+  // Scroll-reveal / count-up triggers (each observes one section, fires once).
+  const stats      = useReveal({ threshold: 0.3 });
+  const howItWorks = useReveal();
+  const whyUs      = useReveal();
+  const cta        = useReveal();
 
   const [siteConfig, setSiteConfig] = useState({
     businessName: "UpKeep",
@@ -458,6 +508,13 @@ export default function LandingPage() {
           className="absolute inset-0"
           style={{ background: "linear-gradient(110deg, rgba(5,15,25,0.96) 0%, rgba(8,53,74,0.91) 55%, rgba(8,53,74,0.83) 100%)" }}
         />
+
+        {/* Ambient background motion — extremely subtle drifting blobs, behind
+            the content. Decorative only; frozen under prefers-reduced-motion. */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
+          <span className="hero-blob hero-blob-1" />
+          <span className="hero-blob hero-blob-2" />
+        </div>
 
         {/* ── Main content — vertically centered, fills remaining space ── */}
         <div className="relative flex-1 flex items-center">
@@ -531,9 +588,10 @@ export default function LandingPage() {
                 to="/services"
                 className="inline-flex items-center gap-2 px-7 sm:px-8 py-3.5 rounded-full
                   bg-blush hover:bg-blush/85 text-primary-dark font-bold text-sm
-                  transition-all duration-200 hover:-translate-y-0.5
+                  transition-all duration-200 hover:-translate-y-0.5 hover:scale-[1.02]
+                  active:scale-95 will-change-transform
                   shadow-lg shadow-black/25
-                  focus:outline-none focus:ring-2 focus:ring-blush/50"
+                  focus:outline-none focus-visible:ring-2 focus-visible:ring-blush/60"
               >
                 Book a Service <ArrowRight size={14} strokeWidth={2.5} />
               </Link>
@@ -543,6 +601,7 @@ export default function LandingPage() {
 
         {/* 5. Stat strip */}
         <div
+          ref={stats.ref}
           className="relative mt-2 mb-8 sm:mb-20 animate-in"
           style={{ animationDelay: "320ms" }}
         >
@@ -559,7 +618,7 @@ export default function LandingPage() {
                   hover:bg-white/[0.05] transition-colors duration-200 cursor-default"
               >
                 <div className="text-3xl font-extrabold text-accent leading-none tracking-tight">
-                  {displayRating}
+                  <CountUpStat value={displayRating} start={stats.isVisible} />
                 </div>
                 <div className="flex items-center gap-[2px] mt-1.5 mb-1">
                   {[1, 2, 3, 4, 5].map(i => (
@@ -576,7 +635,9 @@ export default function LandingPage() {
                   className="flex-1 flex flex-col items-center justify-center px-5 py-4
                     hover:bg-white/[0.05] transition-colors duration-200 cursor-default"
                 >
-                  <div className="text-2xl font-bold text-white leading-none">{value}</div>
+                  <div className="text-2xl font-bold text-white leading-none">
+                    <CountUpStat value={value} start={stats.isVisible} />
+                  </div>
                   <div className="text-white/55 text-xs mt-1.5">{label}</div>
                 </div>
               ))}
@@ -590,7 +651,9 @@ export default function LandingPage() {
               className="flex flex-col items-center justify-center px-2.5 py-3
                 bg-white/[0.10] backdrop-blur-md border border-white/[0.15] rounded-xl"
             >
-              <div className="text-2xl font-extrabold text-accent leading-none">{displayRating}</div>
+              <div className="text-2xl font-extrabold text-accent leading-none">
+                <CountUpStat value={displayRating} start={stats.isVisible} />
+              </div>
               <div className="flex items-center gap-[2px] my-1">
                 {[1, 2, 3, 4, 5].map(i => (
                   <Star key={i} size={8} className="text-amber-400 fill-amber-400" />
@@ -606,7 +669,9 @@ export default function LandingPage() {
                 className="flex flex-col items-center justify-center px-2.5 py-3
                   bg-white/[0.10] backdrop-blur-md border border-white/[0.15] rounded-xl"
               >
-                <div className="text-xl font-bold text-white leading-none">{value}</div>
+                <div className="text-xl font-bold text-white leading-none">
+                  <CountUpStat value={value} start={stats.isVisible} />
+                </div>
                 <div className="text-white/50 text-[10px] mt-1 text-center leading-tight">
                   {label}
                 </div>
@@ -627,9 +692,9 @@ export default function LandingPage() {
       <HomepageServicesSection />
 
       {/* ── HOW IT WORKS ── */}
-      <section className="py-16 md:py-20 bg-bg">
+      <section ref={howItWorks.ref} className="py-16 md:py-20 bg-bg">
         <div className="max-w-7xl mx-auto px-6 lg:px-8">
-          <div className="text-center mb-12 md:mb-14">
+          <Reveal show={howItWorks.isVisible} className="text-center mb-12 md:mb-14">
             <span className="inline-block px-3 py-1 rounded-full bg-primary/8 text-primary
               text-xs font-semibold uppercase tracking-widest mb-4">
               Simple Process
@@ -638,43 +703,44 @@ export default function LandingPage() {
             <p className="text-muted text-sm mt-3 max-w-sm mx-auto">
               Simple, transparent service booking in four easy steps.
             </p>
-          </div>
+          </Reveal>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 sm:gap-6">
             {STEPS.map(({ num, icon: Icon, title, desc }, i) => (
-              <div
-                key={i}
-                className="relative bg-card border border-border rounded-3xl p-7 sm:p-8
-                text-center hover:shadow-lg hover:-translate-y-1 transition-all duration-300 group"
-              >
+              <Reveal key={i} show={howItWorks.isVisible} delay={i * 90} className="h-full">
                 <div
-                  className="absolute -top-4 left-1/2 -translate-x-1/2 w-8 h-8 rounded-full
-                    bg-primary text-white text-xs font-bold flex items-center justify-center
-                    shadow-md shadow-primary/25"
+                  className="relative h-full bg-card border border-border rounded-3xl p-7 sm:p-8
+                  text-center hover:shadow-lg hover:-translate-y-1 will-change-transform transition-all duration-300 group"
                 >
-                  {num}
+                  <div
+                    className="absolute -top-4 left-1/2 -translate-x-1/2 w-8 h-8 rounded-full
+                      bg-primary text-white text-xs font-bold flex items-center justify-center
+                      shadow-md shadow-primary/25"
+                  >
+                    {num}
+                  </div>
+                  <div
+                    className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center
+                    mx-auto mb-4 mt-2 group-hover:bg-primary/20 transition-colors duration-300"
+                  >
+                    <Icon size={26} className="text-primary" strokeWidth={1.8} />
+                  </div>
+                  <h3 className="text-text font-bold text-lg mb-2">{title}</h3>
+                  <p className="text-muted text-sm leading-relaxed">{desc}</p>
+                  {i < STEPS.length - 1 && (
+                    <div className="hidden lg:block absolute top-10 -right-2.5 w-5 h-px bg-border" />
+                  )}
                 </div>
-                <div
-                  className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center
-                  mx-auto mb-4 mt-2 group-hover:bg-primary/20 transition-colors duration-300"
-                >
-                  <Icon size={26} className="text-primary" strokeWidth={1.8} />
-                </div>
-                <h3 className="text-text font-bold text-lg mb-2">{title}</h3>
-                <p className="text-muted text-sm leading-relaxed">{desc}</p>
-                {i < STEPS.length - 1 && (
-                  <div className="hidden lg:block absolute top-10 -right-2.5 w-5 h-px bg-border" />
-                )}
-              </div>
+              </Reveal>
             ))}
           </div>
         </div>
       </section>
 
       {/* ── WHY CHOOSE US — 6 cards ── */}
-      <section className="py-16 md:py-20 bg-bg">
+      <section ref={whyUs.ref} className="py-16 md:py-20 bg-bg">
         <div className="max-w-7xl mx-auto px-6 lg:px-8">
-          <div className="text-center mb-12 md:mb-14">
+          <Reveal show={whyUs.isVisible} className="text-center mb-12 md:mb-14">
             <span className="inline-block px-3 py-1 rounded-full bg-primary/8 text-primary
               text-xs font-semibold uppercase tracking-widest mb-4">
               Our Promise
@@ -683,23 +749,24 @@ export default function LandingPage() {
             <p className="text-muted text-sm mt-3 max-w-sm mx-auto leading-relaxed">
               We built UpKeep around one idea — home services should be stress-free.
             </p>
-          </div>
+          </Reveal>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            {WHY_US.map(({ icon: Icon, title, desc, color, bg, border }) => (
-              <div
-                key={title}
-                className={`bg-card rounded-2xl p-6 border ${border} shadow-sm
-                  hover:shadow-md hover:-translate-y-1 transition-all duration-300 group`}
-                style={{ boxShadow: "0 2px 10px rgba(0,0,0,0.04)" }}
-              >
-                <div className={`w-11 h-11 rounded-xl ${bg} border ${border} flex items-center
-                  justify-center mb-4 group-hover:scale-105 transition-transform duration-300`}>
-                  <Icon size={21} className={color} strokeWidth={1.9} />
+            {WHY_US.map(({ icon: Icon, title, desc, color, bg, border }, i) => (
+              <Reveal key={title} show={whyUs.isVisible} delay={i * 90} className="h-full">
+                <div
+                  className={`h-full bg-card rounded-2xl p-6 border ${border} shadow-sm
+                    hover:shadow-md hover:-translate-y-1 will-change-transform transition-all duration-300 group`}
+                  style={{ boxShadow: "0 2px 10px rgba(0,0,0,0.04)" }}
+                >
+                  <div className={`w-11 h-11 rounded-xl ${bg} border ${border} flex items-center
+                    justify-center mb-4 group-hover:scale-105 transition-transform duration-300`}>
+                    <Icon size={21} className={color} strokeWidth={1.9} />
+                  </div>
+                  <h3 className="text-text font-bold text-base mb-2 leading-snug">{title}</h3>
+                  <p className="text-muted text-sm leading-relaxed">{desc}</p>
                 </div>
-                <h3 className="text-text font-bold text-base mb-2 leading-snug">{title}</h3>
-                <p className="text-muted text-sm leading-relaxed">{desc}</p>
-              </div>
+              </Reveal>
             ))}
           </div>
         </div>
@@ -710,10 +777,10 @@ export default function LandingPage() {
 
       {/* ── CTA — guests only ── */}
       {!isLoggedIn && (
-        <section className="max-w-7xl mx-auto px-6 lg:px-8 py-16 md:py-20">
+        <section ref={cta.ref} className="max-w-7xl mx-auto px-6 lg:px-8 py-16 md:py-20">
           <div
-            className="rounded-3xl p-10 sm:p-12 md:p-16 text-center relative overflow-hidden
-              bg-card border border-border"
+            className={`rounded-3xl p-10 sm:p-12 md:p-16 text-center relative overflow-hidden
+              bg-card border border-border reveal${cta.isVisible ? " is-visible" : ""}`}
             style={{ boxShadow: "0 4px 40px rgba(8,53,74,0.08), 0 1px 4px rgba(0,0,0,0.04)" }}
           >
             <div
@@ -741,7 +808,9 @@ export default function LandingPage() {
                   to="/signup"
                   className="flex items-center gap-2 px-7 sm:px-8 py-3.5 sm:py-4 rounded-full
                     bg-primary hover:bg-primary-hover text-white font-bold text-sm
-                    hover:-translate-y-1 transition-all shadow-lg shadow-primary/20"
+                    hover:-translate-y-1 hover:scale-[1.02] active:scale-95 will-change-transform
+                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40
+                    transition-all shadow-lg shadow-primary/20"
                 >
                   <UserPlus size={15} strokeWidth={2.5} />
                   Sign Up Free
@@ -750,7 +819,9 @@ export default function LandingPage() {
                   to="/services"
                   className="flex items-center gap-2 px-7 sm:px-8 py-3.5 sm:py-4 rounded-full
                     bg-bg text-muted font-semibold text-sm border border-border
-                    hover:bg-card hover:-translate-y-1 transition-all"
+                    hover:bg-card hover:-translate-y-1 hover:scale-[1.02] active:scale-95 will-change-transform
+                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30
+                    transition-all"
                 >
                   View Services <ArrowRight size={15} strokeWidth={2.5} />
                 </Link>
