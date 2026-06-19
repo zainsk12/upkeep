@@ -82,18 +82,40 @@ app.set("trust proxy", 1);
 
 app.use(helmet({ contentSecurityPolicy: false }));
 
+// ── CORS ──────────────────────────────────────────────────────────────────
+// Allow the customer + admin frontends (custom domains and their Vercel
+// fallbacks) plus local dev. The env vars are additive and may be a single
+// origin or a comma-separated list, so origins can be tweaked in Railway
+// without a code change. Duplicates/blanks are stripped.
 const ALLOWED_ORIGINS = [
-  process.env.CLIENT_ORIGIN       || "http://localhost:3000",
-  process.env.ADMIN_CLIENT_ORIGIN || "http://localhost:3001",
-];
+  // Production — custom domains
+  "https://upkeep.austrum.co.in",
+  "https://upkeep-admin.austrum.co.in",
+  // Production — Vercel deployment fallbacks
+  "https://upkeep-steel.vercel.app",
+  "https://upkeep-sgng.vercel.app",
+  // Local development
+  "http://localhost:3000",
+  "http://localhost:3001",
+  // Extra origins from env (single value or comma-separated)
+  ...(process.env.CLIENT_ORIGIN       || "").split(","),
+  ...(process.env.ADMIN_CLIENT_ORIGIN || "").split(","),
+  ...(process.env.EXTRA_CORS_ORIGINS  || "").split(","),
+]
+  .map((o) => o.trim())
+  .filter(Boolean);
 
-app.use(cors({
+const corsOptions = {
   origin: (origin, callback) => {
+    // Allow non-browser clients (no Origin header) and any allow-listed origin.
     if (!origin || ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
     callback(new Error(`CORS: origin ${origin} not allowed`));
   },
   credentials: true,
-}));
+};
+
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions)); // answer OPTIONS preflight for every route
 app.use(express.json({ limit: "50kb" }));
 
 // Routes
