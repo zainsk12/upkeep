@@ -86,6 +86,9 @@ export default function App() {
             <Route path="/settings" element={
               <PrivateRoute><><Navbar /><SettingsPage /></></PrivateRoute>
             } />
+            <Route path="/settings/account" element={
+              <PrivateRoute><><Navbar /><SettingsPage /></></PrivateRoute>
+            } />
             <Route path="/settings/appearance" element={
               <PrivateRoute><><Navbar /><SettingsPage /></></PrivateRoute>
             } />

@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { Sun, Moon, User, Palette, BookOpen, ChevronRight, ChevronDown } from "lucide-react";
+import { Sun, Moon, User, Palette, BookOpen, ChevronRight, ChevronDown, KeyRound } from "lucide-react";
 import { getTheme, setTheme } from "../utils/theme";
+import { useAuth } from "../context/AuthContext";
 
 /* ─── Settings nav items ─────────────────────────────────────────────────── */
 const SETTINGS_ITEMS = [
@@ -11,8 +12,8 @@ const SETTINGS_ITEMS = [
     id: "account",
     icon: User,
     label: "Account",
-    description: "Manage your name, phone, and address",
-    to: "/profile",
+    description: "Update your profile or change your password",
+    to: "/settings/account",
   },
   {
     id: "appearance",
@@ -213,19 +214,84 @@ function AppearancePanel() {
   );
 }
 
+/* ─── Account Management Panel ───────────────────────────────────────────────
+   A lightweight menu that links to the EXISTING flows — no duplicated logic:
+     • Update Profile  → ProfilePage (PUT /api/auth/profile)
+     • Change Password → ForgotPasswordPage (the same Firebase phone/email OTP
+       + reset-password flow). The user's phone is carried via the shared
+       `forgotPasswordIdentifier` sessionStorage key so it prefills.            */
+function AccountPanel({ items }) {
+  return (
+    <div
+      className="bg-card rounded-2xl border border-border overflow-hidden divide-y divide-border"
+      style={{ boxShadow: "0 4px 24px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04)" }}
+    >
+      {items.map(({ id, icon: Icon, label, description, onClick }) => (
+        <button
+          key={id}
+          onClick={onClick}
+          className="w-full flex items-center gap-4 px-5 py-4 text-left
+            hover:bg-primary/[0.04] transition-all duration-150 group"
+        >
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center
+            flex-shrink-0 bg-primary/8 group-hover:bg-primary/14 transition-colors">
+            <Icon size={17} className="text-primary" strokeWidth={1.8} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-text font-semibold text-sm">{label}</p>
+            <p className="text-muted text-xs mt-0.5 truncate">{description}</p>
+          </div>
+          <ChevronRight
+            size={15}
+            className="text-muted/40 group-hover:text-primary flex-shrink-0 transition-colors"
+          />
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /* ─── Main page ──────────────────────────────────────────────────────────── */
 export default function SettingsPage() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
+  const { user } = useAuth();
 
   const isAppearance     = pathname === "/settings/appearance";
   const isGettingStarted = pathname === "/settings/getting-started";
-  const isRoot           = !isAppearance && !isGettingStarted;
+  const isAccount        = pathname === "/settings/account";
+  const isRoot           = !isAppearance && !isGettingStarted && !isAccount;
 
   let heading    = "Settings";
   let subheading = "Manage your account and preferences";
   if (isAppearance)     { heading = "Appearance";   subheading = "Switch between light and dark theme"; }
   if (isGettingStarted) { heading = "Help & FAQs";  subheading = "Everything you need to know about using UpKeep"; }
+  if (isAccount)        { heading = "Account";       subheading = "Update your profile or change your password"; }
+
+  // Account menu rows — both delegate to existing screens/flows (no new logic).
+  const accountItems = [
+    {
+      id: "update-profile",
+      icon: User,
+      label: "Update Profile",
+      description: "Edit your name, phone, and address",
+      onClick: () => navigate("/profile"),
+    },
+    {
+      id: "change-password",
+      icon: KeyRound,
+      label: "Change Password",
+      description: "Verify via OTP, then set a new password",
+      onClick: () => {
+        // Reuse the Forgot/Reset Password flow. Seed the identifier (phone first,
+        // email fallback) so it prefills and runs the same Firebase OTP path.
+        try {
+          sessionStorage.setItem("forgotPasswordIdentifier", user?.phone || user?.email || "");
+        } catch { /* private mode / quota — non-fatal, page just starts empty */ }
+        navigate("/forgot-password");
+      },
+    },
+  ];
 
   return (
     <div className="min-h-screen bg-bg py-10 px-4">
@@ -291,6 +357,9 @@ export default function SettingsPage() {
             ))}
           </div>
         )}
+
+        {/* ── Account management panel ── */}
+        {isAccount && <AccountPanel items={accountItems} />}
 
         {/* ── Appearance panel ── */}
         {isAppearance && <AppearancePanel />}
