@@ -82,6 +82,16 @@ const env = {
     authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
     projectId:  import.meta.env.VITE_FIREBASE_PROJECT_ID,
     appId:      import.meta.env.VITE_FIREBASE_APP_ID,
+    // Present in .env and the Console SDK snippet — pass them through so the web
+    // app config matches Firebase exactly (incomplete configs are a known source
+    // of subtle SDK init issues). Optional for phone auth; safe to be undefined.
+    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+    storageBucket:     import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+    // OPTIONAL — Firebase App Check (reCAPTCHA v3 site key registered for App
+    // Check). When set, App Check is initialized and a token is attached to the
+    // phone password-reset verification. Absent → App Check is skipped (the flow
+    // still works; server-side enforcement is likewise opt-in).
+    appCheckKey: import.meta.env.VITE_FIREBASE_APP_CHECK_KEY || "",
   },
 
   // ── Google reCAPTCHA v3 (booking confirmation) ────────────────────────────

@@ -8,12 +8,46 @@
 
 import { initializeApp } from "firebase/app";
 import { getAuth, RecaptchaVerifier, signInWithPhoneNumber } from "firebase/auth";
+import { initializeAppCheck, ReCaptchaV3Provider, getToken } from "firebase/app-check";
 import env from "../utils/env";
 
 const app = initializeApp(env.firebase);
 
 export const auth = getAuth(app);
 auth.useDeviceLanguage();
+
+// ── Firebase App Check (optional, anti-automation) ────────────────────────────
+// Initialized only when VITE_FIREBASE_APP_CHECK_KEY is configured, so deployments
+// without App Check set up are unaffected. Wrapped in try/catch so a misconfigured
+// key can never break app startup.
+let appCheck = null;
+if (env.firebase.appCheckKey) {
+  try {
+    appCheck = initializeAppCheck(app, {
+      provider: new ReCaptchaV3Provider(env.firebase.appCheckKey),
+      isTokenAutoRefreshEnabled: true,
+    });
+  } catch (err) {
+    // Never let App Check init break the app — log and continue without it.
+    console.error("[App Check] init failed:", err?.message || err);
+    appCheck = null;
+  }
+}
+
+/**
+ * Best-effort App Check token for hardened endpoints. Returns null when App Check
+ * isn't configured or token retrieval fails — callers must treat it as optional.
+ */
+export async function getAppCheckToken() {
+  if (!appCheck) return null;
+  try {
+    const { token } = await getToken(appCheck, /* forceRefresh */ false);
+    return token || null;
+  } catch (err) {
+    console.error("[App Check] token fetch failed:", err?.message || err);
+    return null;
+  }
+}
 
 export { RecaptchaVerifier, signInWithPhoneNumber };
 

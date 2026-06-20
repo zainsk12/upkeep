@@ -9,7 +9,11 @@ import { toast } from "../../utils/toast";
 import { useAuth } from "../../context/AuthContext";
 import { loginApi } from "../../services/authApi";
 import FormInput from "../../components/FormInput";
-import { CheckCircle2, Star, Clock } from "lucide-react";
+import { CheckCircle2, Star, Clock, KeyRound } from "lucide-react";
+
+// sessionStorage key shared with ForgotPasswordPage — the identifier the user
+// typed on a failed login is carried across to prefill the reset form.
+const FORGOT_ID_KEY = "forgotPasswordIdentifier";
 
 const PERKS = [
   { icon: CheckCircle2, text: "Verified professionals" },
@@ -36,6 +40,9 @@ export default function LoginPage() {
   const [errors, setErrors]     = useState({});
   const [loading, setLoading]   = useState(false);
   const [showPass, setShowPass] = useState(false);
+  // Hidden until the first failed sign-in; once revealed it stays visible for the
+  // rest of this page session (UX only — no effect on auth).
+  const [showForgot, setShowForgot] = useState(false);
 
   const credentialType = getCredentialType(form.credential);
 
@@ -84,6 +91,12 @@ export default function LoginPage() {
       } else {
         msg = err.response.data?.message || "Invalid credentials. Please try again.";
       }
+      // Reveal the Forgot Password affordance after the first failed attempt and
+      // carry the entered identifier to the reset page (UX only — no auth change).
+      setShowForgot(true);
+      try {
+        sessionStorage.setItem(FORGOT_ID_KEY, form.credential.trim());
+      } catch { /* private mode / quota — non-fatal */ }
       toast.error(msg, { id: toastId });
     } finally {
       setLoading(false);
@@ -189,6 +202,29 @@ export default function LoginPage() {
                 </button>
               }
             />
+
+            {/* Hidden on first load; fades in after a failed sign-in. High-contrast
+                blush-on-blush card so it reads clearly on the dark background. */}
+            {showForgot && (
+              <div
+                role="status"
+                aria-live="polite"
+                className="animate-in -mt-1 flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5
+                  rounded-xl border border-blush/30 bg-blush/10 px-3.5 py-2.5"
+              >
+                <span className="text-white/70 text-xs">Trouble signing in?</span>
+                <Link
+                  to="/forgot-password"
+                  className="inline-flex items-center gap-1.5 text-sm font-semibold text-blush
+                    hover:text-white hover:underline underline-offset-2 rounded-md transition-colors
+                    focus:outline-none focus-visible:ring-2 focus-visible:ring-blush/70
+                    focus-visible:ring-offset-2 focus-visible:ring-offset-charcoal"
+                >
+                  <KeyRound size={14} aria-hidden="true" />
+                  Forgot Password?
+                </Link>
+              </div>
+            )}
 
             <button
               type="submit"

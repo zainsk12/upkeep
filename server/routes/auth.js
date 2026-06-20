@@ -22,7 +22,13 @@ const rateLimit = require("express-rate-limit");
 const User      = require("../models/User");
 const protect   = require("../middleware/auth");
 const { normalizePhone, isValidIndianPhone } = require("../utils/phone");
+const { exceedsBcryptLimit, TOO_LONG_MESSAGE } = require("../utils/passwordPolicy");
 const { verifyFirebaseToken } = require("../services/firebaseAdmin");
+const {
+  forgotPassword,
+  verifyResetOtp,
+  resetPassword,
+} = require("../controllers/passwordResetController");
 
 const router = express.Router();
 
@@ -44,6 +50,32 @@ const loginLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders:   false,
   message:         { message: "Too many login attempts. Please try again later." },
+});
+
+// Forgot-password (initial request AND resend share this endpoint): a per-IP
+// ceiling that only blunts bulk/scripted abuse from a single IP. It is intentionally
+// generous because the precise anti-bombing control is now the PER-ACCOUNT cooldown
+// (60s between emails, max 10 / 24h — see passwordResetService.evaluateResetThrottle),
+// which is IP-independent and victim-scoped. Keeping this tight (it was 5/15m) would
+// wrongly block a legitimate user doing an initial request + a few resends; the
+// per-account throttle still caps a single victim's inbox regardless of this value.
+const forgotPasswordLimiter = rateLimit({
+  windowMs:        15 * 60 * 1000,
+  max:             15,
+  standardHeaders: true,
+  legacyHeaders:   false,
+  message:         { message: "Too many reset requests. Please try again in a few minutes." },
+});
+
+// OTP verification: a little more headroom than sending, but still tight to blunt
+// brute-forcing the 6-digit code from a single IP (the per-account 5-attempt cap
+// is the primary guard; this backstops IP-level enumeration).
+const resetVerifyLimiter = rateLimit({
+  windowMs:        15 * 60 * 1000,
+  max:             20,
+  standardHeaders: true,
+  legacyHeaders:   false,
+  message:         { message: "Too many attempts. Please try again in a few minutes." },
 });
 
 // ── Token helper ──────────────────────────────────────────────────────────────
@@ -85,6 +117,11 @@ router.post("/register", registerLimiter, async (req, res) => {
 
     if (!password || password.length < 8)
       return res.status(400).json({ message: "Password must be at least 8 characters." });
+
+    // bcrypt only hashes the first 72 bytes — reject longer passwords so the
+    // ignored tail can't give users a false sense of strength (UTF-8 byte length).
+    if (exceedsBcryptLimit(password))
+      return res.status(400).json({ message: TOO_LONG_MESSAGE });
 
     // Email is OPTIONAL. Normalise blank/whitespace to "no email" and only
     // validate the format when an actual value was supplied.
@@ -203,6 +240,14 @@ router.post("/login", loginLimiter, async (req, res) => {
     res.status(500).json({ message: "Server error. Please try again." });
   }
 });
+
+// ── Password reset flow ───────────────────────────────────────────────────────
+// POST /api/auth/forgot-password   — request a reset code (email OTP or phone)
+// POST /api/auth/verify-reset-otp  — verify the code → returns a reset token
+// POST /api/auth/reset-password    — set a new password with the reset token
+router.post("/forgot-password",  forgotPasswordLimiter, forgotPassword);
+router.post("/verify-reset-otp",  resetVerifyLimiter,    verifyResetOtp);
+router.post("/reset-password",    resetVerifyLimiter,    resetPassword);
 
 // ── GET /api/auth/me ──────────────────────────────────────────────────────────
 router.get("/me", protect, (req, res) => {

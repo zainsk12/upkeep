@@ -26,7 +26,7 @@ router.get("/site", (req, res) => {
     tagline:      process.env.SITE_TAGLINE        || "by Austrum",
     city:         process.env.SITE_CITY           || "Nashik, Maharashtra",
     phone:        process.env.SITE_PHONE          || "+91 98765 43210",
-    email:        process.env.SITE_EMAIL          || "support@austrum.in",
+    email:        process.env.SITE_EMAIL          || "support.austrum@gmail.com",
   });
 });
 

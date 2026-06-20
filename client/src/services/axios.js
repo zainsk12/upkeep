@@ -20,7 +20,19 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err.response?.status === 401) {
+    // A 401 only means "session expired → bounce to login" for an AUTHENTICATED
+    // request, i.e. one that actually carried a bearer token. Redirecting on ALL
+    // 401s also hijacked the login form's own 401 (invalid credentials): the
+    // forced full-page reload remounted the SPA and wiped the error toast +
+    // "Forgot Password" reveal before LoginPage could react. We detect an
+    // authenticated request by the presence of the Authorization header the
+    // request interceptor attaches (login/forgot/reset requests carry none), so
+    // their 401s now propagate to the calling component as intended.
+    const cfg = err.config || {};
+    const wasAuthenticated = Boolean(
+      cfg.headers?.Authorization || cfg.headers?.authorization
+    );
+    if (err.response?.status === 401 && wasAuthenticated) {
       clearToken();
       window.location.href = "/login";
     }

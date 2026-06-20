@@ -89,7 +89,57 @@ const app = express();
 // proxy hop so req.ip and express-rate-limit see the real client address.
 app.set("trust proxy", 1);
 
-app.use(helmet({ contentSecurityPolicy: false }));
+// ── Content Security Policy ───────────────────────────────────────────────────
+// NOTE ON ARCHITECTURE: this Express app serves only JSON (the `/` health check
+// and `/api/*`). The React SPA is hosted separately (Vercel), so this header
+// hardens the API origin and CANNOT break the frontend. The SAME policy is
+// mirrored on the frontend host via client/vercel.json (where it protects the
+// actual HTML document).
+//
+// The allow-list is built from the services the app ecosystem actually uses, so
+// it is also correct if the API ever serves HTML:
+//   • Firebase Auth (phone)  → googleapis.com, gstatic.com, apis.google.com,
+//                              *.firebaseapp.com (auth iframe)
+//   • Firebase App Check     → *firebaseappcheck.googleapis.com
+//   • Google reCAPTCHA v3    → www.google.com, www.gstatic.com
+//   • Inline styles          → React style={{}} attributes need 'unsafe-inline'
+//                              for styles only (NOT scripts).
+const cspDirectives = {
+  defaultSrc:  ["'self'"],
+  baseUri:     ["'self'"],
+  objectSrc:   ["'none'"],
+  frameAncestors: ["'self'"],
+  formAction:  ["'self'"],
+  // No inline/eval scripts — Vite emits external module bundles; only the known
+  // Google/Firebase script origins are allowed.
+  scriptSrc:   ["'self'", "https://www.google.com", "https://www.gstatic.com", "https://apis.google.com"],
+  styleSrc:    ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+  fontSrc:     ["'self'", "data:", "https://fonts.gstatic.com"],
+  imgSrc:      ["'self'", "data:", "https:"],
+  connectSrc:  [
+    "'self'",
+    "https://identitytoolkit.googleapis.com",
+    "https://securetoken.googleapis.com",
+    "https://www.googleapis.com",
+    "https://firebaseinstallations.googleapis.com",
+    "https://firebaseappcheck.googleapis.com",
+    "https://content-firebaseappcheck.googleapis.com",
+    "https://www.google.com",
+  ],
+  frameSrc:    ["'self'", "https://www.google.com", "https://*.firebaseapp.com"],
+};
+// upgrade-insecure-requests only in production (would interfere with http://localhost in dev).
+if (process.env.NODE_ENV === "production") cspDirectives.upgradeInsecureRequests = [];
+
+app.use(
+  helmet({
+    contentSecurityPolicy: { useDefaults: true, directives: cspDirectives },
+    // Allow cross-origin embedding of API resources (no COEP/CORP tightening that
+    // could interfere with the separately-hosted frontend fetching the API).
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+  })
+);
 
 // ── CORS ──────────────────────────────────────────────────────────────────
 // Allow the customer + admin frontends (custom domains and their Vercel
@@ -162,6 +212,13 @@ mongoose
   })
   .then(() => {
     console.log("✅ Connected to MongoDB Atlas");
+    // Start the automated sweep that clears abandoned/expired password-reset
+    // state (OTPs + tokens). Active sessions (future expiry) are never touched.
+    try {
+      require("./services/resetCleanup").startResetCleanupJob();
+    } catch (e) {
+      console.error("[RESET CLEANUP] failed to schedule:", e.message);
+    }
     app.listen(PORT, () =>
       console.log(`🚀 Server running on http://localhost:${PORT}`)
     );

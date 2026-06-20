@@ -10,8 +10,9 @@ import Navbar from "./components/Navbar";
 import PrivateRoute from "./components/PrivateRoute";
 
 import LandingPage    from "./pages/LandingPage";
-import LoginPage      from "./pages/auth/LoginPage";
-import SignupPage     from "./pages/auth/SignupPage";
+import LoginPage          from "./pages/auth/LoginPage";
+import SignupPage         from "./pages/auth/SignupPage";
+import ForgotPasswordPage from "./pages/auth/ForgotPasswordPage";
 import ProfilePage    from "./pages/ProfilePage";
 import SettingsPage   from "./pages/SettingsPage";
 import ServicesPage   from "./pages/ServicesPage";
@@ -71,8 +72,9 @@ export default function App() {
           <Routes>
             {/* Public */}
             <Route path="/"        element={<><Navbar /><LandingPage /></>} />
-            <Route path="/login"   element={<LoginPage />} />
-            <Route path="/signup"  element={<SignupPage />} />
+            <Route path="/login"           element={<LoginPage />} />
+            <Route path="/signup"          element={<SignupPage />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/services"     element={<><Navbar /><ServicesPage /></>} />
             <Route path="/services/:id" element={<><Navbar /><ServicesPage /></>} />
             <Route path="/reviews"      element={<><Navbar /><AllReviewsPage /></>} />

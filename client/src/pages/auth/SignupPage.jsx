@@ -15,6 +15,7 @@ import {
   firebaseAuthErrorMessage,
 } from "../../services/firebase";
 import { useAuth } from "../../context/AuthContext";
+import { normalizePhone, isValidIndianPhone } from "../../utils/phone";
 import FormInput from "../../components/FormInput";
 import { CheckCircle2, Star, Clock, Shield, Phone, ArrowLeft, RotateCcw } from "lucide-react";
 
@@ -24,20 +25,6 @@ const PERKS = [
   { icon: Clock,        text: "Same-day bookings available"    },
   { icon: Star,         text: "Rated 4.9 by 10,000+ customers" },
 ];
-
-// ── Phone normalisation (mirrors backend) ─────────────────────────────────────
-function normalizePhone(raw) {
-  let p = String(raw).replace(/[\s\-\(\)]/g, "");
-  if (p.startsWith("+91") && p.length === 13) return p.slice(3);
-  if (p.startsWith("91")  && p.length === 12) return p.slice(2);
-  if (p.startsWith("0")   && p.length === 11) return p.slice(1);
-  return p;
-}
-
-function isValidIndianPhone(raw) {
-  const p = normalizePhone(raw);
-  return /^[6-9]\d{9}$/.test(p);
-}
 
 // ── Step 1 validation ─────────────────────────────────────────────────────────
 function validateForm({ name, phone, email, password }) {

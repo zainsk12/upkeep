@@ -16,6 +16,7 @@
 "use strict";
 
 const nodemailer = require("nodemailer");
+const { maskEmail } = require("../utils/mask");
 
 let transporter = null;
 
@@ -259,14 +260,296 @@ async function sendWorkerAssignedEmail(user, booking, worker) {
     const info = await tx.sendMail({ from, to: user.email, subject, text, html });
     const sendMs = Date.now() - sendStart;
     console.log(
-      `[EMAIL] Worker-assigned notice sent to ${user.email} for ${ref} (${info.messageId}) ` +
+      `[EMAIL] Worker-assigned notice sent to ${maskEmail(user.email)} for ${ref} (${info.messageId}) ` +
       `[TIMING] transporter_ready_ms=${txReadyMs} smtp_sendMail_ms=${sendMs}`
     );
     return { sent: true, messageId: info.messageId };
   } catch (err) {
-    console.error(`[EMAIL] Failed to send worker-assigned notice to ${user.email}:`, err.message);
+    console.error(`[EMAIL] Failed to send worker-assigned notice to ${maskEmail(user.email)}:`, err.message);
     throw err;
   }
 }
 
-module.exports = { sendWorkerAssignedEmail, warmEmailTransport };
+/**
+ * Send the 6-digit password-reset OTP to a customer's email.
+ * Best-effort: logs and rethrows so the controller can surface a failure.
+ *
+ * @param {{ name?: string, email: string }} user - recipient
+ * @param {string} otp                            - the plain 6-digit code (NOT stored)
+ * @returns {Promise<{ sent: true, messageId: string }>}
+ */
+async function sendPasswordResetOtpEmail(user, otp) {
+  if (!user?.email) {
+    console.warn(`[EMAIL] Reset OTP skipped — user ${user?._id || "?"} has no email.`);
+    return { skipped: true, reason: "no-email" };
+  }
+
+  const from    = process.env.EMAIL_FROM || `"UpKeep by Austrum" <${process.env.EMAIL_USER}>`;
+  const appUrl  = (process.env.CUSTOMER_APP_URL || "https://upkeep.austrum.co.in").replace(/\/+$/, "");
+  const logoUrl = process.env.EMAIL_LOGO_URL || `${appUrl}/upkeep_logo.png`;
+  const code    = String(otp);
+
+  const subject = "UpKeep Password Reset Verification";
+
+  // ── Plain-text fallback ────────────────────────────────────────────────────
+  const text =
+    `Hi ${user.name || "there"},\n\n` +
+    `We received a request to reset the password for your UpKeep account.\n\n` +
+    `Your verification code is: ${code}\n\n` +
+    `This code expires in 10 minutes. Do not share it with anyone.\n\n` +
+    `If you did not request a password reset, you can safely ignore this email — ` +
+    `your password will remain unchanged.\n\n` +
+    `— UpKeep by Austrum`;
+
+  // ── Branded responsive HTML (table-based for email-client compatibility) ────
+  const NAVY = "#08354A", PRIMARY = "#0E4A63", INK = "#0b1d3a", MUTE = "#64748b";
+
+  // Render the OTP as spaced, boxed digits for clarity.
+  const digitCells = code
+    .split("")
+    .map(
+      (d) =>
+        `<td style="padding:0 5px;">
+          <div style="width:44px;height:54px;line-height:54px;background:#ffffff;border:1px solid #d6e2e8;border-radius:10px;color:${NAVY};font-size:26px;font-weight:700;text-align:center;font-family:'Courier New',monospace;">${escapeHtml(d)}</div>
+        </td>`
+    )
+    .join("");
+
+  const html = `<!doctype html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#eef2f4;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef2f4;padding:24px 12px;">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;font-family:Arial,Helvetica,sans-serif;box-shadow:0 8px 30px rgba(8,53,74,0.12);">
+
+        <!-- Header -->
+        <tr>
+          <td style="background:${NAVY};padding:24px 28px;" align="left">
+            <img src="${escapeHtml(logoUrl)}" width="40" height="40" alt="UpKeep by Austrum"
+                 style="vertical-align:middle;border-radius:50%;background:#ffffff;" />
+            <span style="color:#ffffff;font-size:18px;font-weight:700;letter-spacing:0.2px;vertical-align:middle;padding-left:10px;">UpKeep <span style="color:#9fd0e0;font-weight:500;">by Austrum</span></span>
+          </td>
+        </tr>
+
+        <!-- Title -->
+        <tr>
+          <td style="padding:30px 28px 4px;">
+            <h1 style="margin:0 0 8px;color:${NAVY};font-size:21px;">Password Reset Verification</h1>
+            <p style="margin:0;color:#475569;font-size:14px;line-height:1.6;">
+              Hi ${escapeHtml(user.name || "there")}, use the verification code below to reset your UpKeep password.
+            </p>
+          </td>
+        </tr>
+
+        <!-- OTP code -->
+        <tr>
+          <td style="padding:24px 28px 8px;" align="center">
+            <p style="margin:0 0 12px;color:${MUTE};font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">Your verification code</p>
+            <table role="presentation" cellpadding="0" cellspacing="0" align="center"><tr>${digitCells}</tr></table>
+          </td>
+        </tr>
+
+        <!-- Expiry warning -->
+        <tr>
+          <td style="padding:16px 28px 4px;" align="center">
+            <span style="display:inline-block;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;font-size:13px;font-weight:600;padding:8px 16px;border-radius:999px;">
+              ⏱ This code expires in 10 minutes
+            </span>
+          </td>
+        </tr>
+
+        <!-- Security note -->
+        <tr>
+          <td style="padding:22px 28px 8px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;">
+              <tr><td style="padding:14px 18px;color:${INK};font-size:13px;line-height:1.7;">
+                <strong style="color:${PRIMARY};">🔒 Didn't request this?</strong><br/>
+                If you did not ask to reset your password, you can safely ignore this email — your
+                password will stay the same. Never share this code with anyone, including UpKeep staff.
+              </td></tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- Footer -->
+        <tr>
+          <td style="padding:22px 28px 30px;" align="center">
+            <p style="margin:0;color:#94a3b8;font-size:12px;line-height:1.6;">
+              Need help? Reply to this email and our team will get back to you.<br/>
+              © UpKeep by Austrum
+            </p>
+          </td>
+        </tr>
+
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+  try {
+    const tx   = getTransporter();
+    const info = await tx.sendMail({ from, to: user.email, subject, text, html });
+    console.log(`[EMAIL] Password-reset OTP sent to ${maskEmail(user.email)} (${info.messageId})`);
+    return { sent: true, messageId: info.messageId };
+  } catch (err) {
+    console.error(`[EMAIL] Failed to send password-reset OTP to ${maskEmail(user.email)}:`, err.message);
+    throw err;
+  }
+}
+
+/**
+ * Notify a user that their account password was just changed. Sent AFTER a
+ * successful reset so an account owner can react if the change wasn't them.
+ * Best-effort: logs and swallows failures (never blocks the reset response).
+ *
+ * @param {{ name?: string, email?: string }} user      - recipient (must have email)
+ * @param {object} [opts]
+ * @param {string} [opts.maskedIdentifier]              - masked email/phone for display
+ * @param {Date}   [opts.when]                          - timestamp of the change
+ * @returns {Promise<{ sent: true, messageId: string } | { skipped: true }>}
+ */
+async function sendPasswordChangedEmail(user, opts = {}) {
+  if (!user?.email) {
+    // Phone-only accounts have no email channel — nothing to notify on.
+    console.warn(`[EMAIL] Password-changed notice skipped — user ${user?._id || "?"} has no email.`);
+    return { skipped: true, reason: "no-email" };
+  }
+
+  const from    = process.env.EMAIL_FROM || `"UpKeep by Austrum" <${process.env.EMAIL_USER}>`;
+  const appUrl  = (process.env.CUSTOMER_APP_URL || "https://upkeep.austrum.co.in").replace(/\/+$/, "");
+  const logoUrl = process.env.EMAIL_LOGO_URL || `${appUrl}/upkeep_logo.png`;
+  const support = process.env.SITE_EMAIL || "support.austrum@gmail.com";
+  const masked  = opts.maskedIdentifier || user.email;
+  const when    = opts.when instanceof Date ? opts.when : new Date();
+
+  // Human-readable IST timestamp.
+  let whenStr;
+  try {
+    whenStr = when.toLocaleString("en-IN", {
+      day: "numeric", month: "short", year: "numeric",
+      hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata",
+    }) + " IST";
+  } catch {
+    whenStr = when.toISOString();
+  }
+
+  const subject = "UpKeep Password Changed Successfully";
+
+  // ── Plain-text fallback ────────────────────────────────────────────────────
+  const text =
+    `Hi ${user.name || "there"},\n\n` +
+    `This is a confirmation that the password for your UpKeep account (${masked}) ` +
+    `was changed on ${whenStr}.\n\n` +
+    `If you made this change, no further action is needed.\n\n` +
+    `⚠️ If you did NOT change your password, your account may be at risk. ` +
+    `Please reset your password again immediately and contact us at ${support}.\n\n` +
+    `— UpKeep by Austrum`;
+
+  // ── Branded responsive HTML ────────────────────────────────────────────────
+  const NAVY = "#08354A", PRIMARY = "#0E4A63", INK = "#0b1d3a", MUTE = "#64748b", LINE = "#e2e8f0";
+  const row = (label, value) => `
+    <tr>
+      <td style="padding:8px 0;color:${MUTE};font-size:13px;white-space:nowrap;">${escapeHtml(label)}</td>
+      <td style="padding:8px 0 8px 16px;color:${INK};font-size:13px;font-weight:600;text-align:right;">${escapeHtml(value)}</td>
+    </tr>`;
+
+  const html = `<!doctype html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#eef2f4;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef2f4;padding:24px 12px;">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;font-family:Arial,Helvetica,sans-serif;box-shadow:0 8px 30px rgba(8,53,74,0.12);">
+
+        <!-- Header -->
+        <tr>
+          <td style="background:${NAVY};padding:24px 28px;" align="left">
+            <img src="${escapeHtml(logoUrl)}" width="40" height="40" alt="UpKeep by Austrum"
+                 style="vertical-align:middle;border-radius:50%;background:#ffffff;" />
+            <span style="color:#ffffff;font-size:18px;font-weight:700;letter-spacing:0.2px;vertical-align:middle;padding-left:10px;">UpKeep <span style="color:#9fd0e0;font-weight:500;">by Austrum</span></span>
+          </td>
+        </tr>
+
+        <!-- Confirmation banner -->
+        <tr>
+          <td style="background:#ecfdf5;border-top:1px solid #d1fae5;border-bottom:1px solid #d1fae5;padding:14px 28px;" align="left">
+            <span style="color:#15803d;font-size:14px;font-weight:700;">✓ Password Changed</span>
+            <span style="color:#3f6212;font-size:13px;"> &nbsp;— your account password was updated.</span>
+          </td>
+        </tr>
+
+        <!-- Body -->
+        <tr>
+          <td style="padding:28px 28px 8px;">
+            <h1 style="margin:0 0 8px;color:${NAVY};font-size:20px;">Your password was changed</h1>
+            <p style="margin:0;color:#475569;font-size:14px;line-height:1.6;">
+              Hi ${escapeHtml(user.name || "there")}, we're confirming that the password for your UpKeep
+              account was just updated. Here are the details.
+            </p>
+          </td>
+        </tr>
+
+        <!-- Detail card -->
+        <tr>
+          <td style="padding:16px 28px 4px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid ${LINE};border-radius:12px;">
+              <tr><td style="padding:14px 18px 4px;color:${PRIMARY};font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Change Details</td></tr>
+              <tr><td style="padding:0 18px 12px;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                  ${row("Account", masked)}
+                  ${row("Changed at", whenStr)}
+                </table>
+              </td></tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- Security warning -->
+        <tr>
+          <td style="padding:18px 28px 8px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;">
+              <tr><td style="padding:14px 18px;color:#7f1d1d;font-size:13px;line-height:1.7;">
+                <strong>⚠️ Didn't change your password?</strong><br/>
+                If this wasn't you, your account may be compromised. Reset your password again
+                immediately and contact our team at
+                <a href="mailto:${escapeHtml(support)}" style="color:${PRIMARY};font-weight:600;">${escapeHtml(support)}</a>.
+              </td></tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- Footer -->
+        <tr>
+          <td style="padding:22px 28px 30px;" align="center">
+            <p style="margin:0;color:#94a3b8;font-size:12px;line-height:1.6;">
+              Need help? Reply to this email or contact ${escapeHtml(support)}.<br/>
+              © UpKeep by Austrum
+            </p>
+          </td>
+        </tr>
+
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+  try {
+    const tx   = getTransporter();
+    const info = await tx.sendMail({ from, to: user.email, subject, text, html });
+    console.log(`[EMAIL] Password-changed notice sent to ${maskEmail(user.email)} (${info.messageId})`);
+    return { sent: true, messageId: info.messageId };
+  } catch (err) {
+    console.error(`[EMAIL] Failed to send password-changed notice to ${maskEmail(user.email)}:`, err.message);
+    throw err;
+  }
+}
+
+module.exports = {
+  sendWorkerAssignedEmail,
+  sendPasswordResetOtpEmail,
+  sendPasswordChangedEmail,
+  warmEmailTransport,
+};

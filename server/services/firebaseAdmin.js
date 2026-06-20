@@ -62,4 +62,31 @@ async function verifyFirebaseToken(idToken) {
   };
 }
 
-module.exports = { initFirebase, verifyFirebaseToken };
+/** True when server-side App Check enforcement is switched on via env. */
+function isAppCheckEnforced() {
+  return String(process.env.FIREBASE_APP_CHECK_ENFORCE || "").toLowerCase() === "true";
+}
+
+/**
+ * Verify a Firebase App Check token, proving the request came from a genuine
+ * instance of our app (not a script). Used to harden the phone-reset flow against
+ * automated SMS abuse. Throws on a missing/invalid token.
+ *
+ * Enforcement is gated by FIREBASE_APP_CHECK_ENFORCE so the flow keeps working
+ * until App Check is fully configured in the Firebase console + client.
+ * @param {string} appCheckToken
+ */
+async function verifyAppCheckToken(appCheckToken) {
+  if (!appCheckToken) throw new Error("Missing App Check token.");
+  initFirebase();
+  // Throws if the token is invalid/expired; we only need the success signal.
+  await admin.appCheck().verifyToken(appCheckToken);
+  return { ok: true };
+}
+
+module.exports = {
+  initFirebase,
+  verifyFirebaseToken,
+  verifyAppCheckToken,
+  isAppCheckEnforced,
+};
