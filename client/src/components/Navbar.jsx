@@ -14,25 +14,29 @@ function getInitials(name = "") {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-function AvatarDropdown({ user, onLogout }) {
-  const [open, setOpen] = useState(false);
-  const ref             = useRef(null);
-  const navigate        = useNavigate();
+function AvatarDropdown({ user, onLogout, open, onOpenChange }) {
+  const ref      = useRef(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     const handler = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+      // Only the VISIBLE instance reacts. The other breakpoint's instance is
+      // display:none (offsetParent === null), so it must NOT treat an in-dropdown
+      // click on the active breakpoint as an "outside" click and close it.
+      if (ref.current && ref.current.offsetParent !== null && !ref.current.contains(e.target)) {
+        onOpenChange(false);
+      }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, []);
+  }, [onOpenChange]);
 
   const initials = getInitials(user?.name || user?.email || "U");
 
   return (
     <div className="relative" ref={ref}>
       <button
-        onClick={() => setOpen(v => !v)}
+        onClick={() => onOpenChange(!open)}
         className="flex items-center gap-1.5 focus:outline-none group"
         aria-label="User menu"
         aria-expanded={open}
@@ -77,7 +81,16 @@ function AvatarDropdown({ user, onLogout }) {
 
           <div className="p-1.5 flex flex-col gap-0.5">
             <button
-              onClick={() => { setOpen(false); navigate("/settings"); }}
+              onClick={() => { onOpenChange(false); navigate("/settings/account"); }}
+              className="flex items-center gap-2.5 w-full px-3 py-2.5 rounded-xl
+                text-text hover:bg-primary/6 hover:text-primary
+                text-sm font-medium transition-all duration-150 group"
+            >
+              <User size={15} strokeWidth={2} className="text-muted group-hover:text-primary transition-colors" />
+              Account
+            </button>
+            <button
+              onClick={() => { onOpenChange(false); navigate("/settings"); }}
               className="flex items-center gap-2.5 w-full px-3 py-2.5 rounded-xl
                 text-text hover:bg-primary/6 hover:text-primary
                 text-sm font-medium transition-all duration-150 group"
@@ -86,7 +99,7 @@ function AvatarDropdown({ user, onLogout }) {
               Settings
             </button>
             <button
-              onClick={() => { setOpen(false); onLogout(); }}
+              onClick={() => { onOpenChange(false); onLogout(); }}
               className="flex items-center gap-2.5 w-full px-3 py-2.5 rounded-xl
                 text-muted hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-500
                 text-sm font-medium transition-all duration-150 group"
@@ -105,12 +118,19 @@ export default function Navbar() {
   const { isAuthenticated, user, logout } = useAuth();
   const navigate  = useNavigate();
   const location  = useLocation();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen]             = useState(false); // mobile hamburger menu
+  const [avatarOpen, setAvatarOpen] = useState(false); // avatar dropdown
 
-  useEffect(() => { setOpen(false); }, [location.pathname]);
+  // Close both overlays on navigation.
+  useEffect(() => { setOpen(false); setAvatarOpen(false); }, [location.pathname]);
 
-  const handleLogout = () => { logout(); navigate("/"); setOpen(false); };
+  const handleLogout = () => { logout(); navigate("/"); setOpen(false); setAvatarOpen(false); };
   const close = () => setOpen(false);
+
+  // Mutually exclusive overlays — opening one closes the other (only one mobile
+  // overlay can be open at a time).
+  const toggleMobileMenu      = () => { setOpen((prev) => !prev); setAvatarOpen(false); };
+  const handleAvatarOpenChange = (next) => { setAvatarOpen(next); if (next) setOpen(false); };
 
   const isActive = (path) =>
     path === "/" ? location.pathname === "/" : location.pathname.startsWith(path);
@@ -137,8 +157,21 @@ export default function Navbar() {
       <div className="max-w-7xl mx-auto px-4 sm:px-5 lg:px-8">
         <div className="flex items-center justify-between h-16 sm:h-[68px]">
 
-          {/* Logo lockup */}
-          <Link to="/" className="flex items-center gap-2.5 group flex-shrink-0" onClick={close}>
+          {/* LEFT — mobile hamburger (far left) + desktop logo lockup */}
+          <div className="flex items-center">
+            {/* Hamburger — mobile only, far left */}
+            <button
+              className="md:hidden p-2 -ml-1 rounded-lg text-white/80 hover:text-white hover:bg-white/10
+                transition-all focus:outline-none focus:ring-2 focus:ring-white/30"
+              onClick={toggleMobileMenu}
+              aria-label={open ? "Close menu" : "Open menu"}
+            >
+              {open ? <X size={20} strokeWidth={2.5} /> : <Menu size={20} strokeWidth={2.5} />}
+            </button>
+
+            {/* Logo lockup — desktop only (hidden on mobile to avoid duplicate
+                branding with the Hero section) */}
+            <Link to="/" className="hidden md:flex items-center gap-2.5 group flex-shrink-0" onClick={close}>
             {/* TODO: temporary full-badge logo; replace with icon-only transparent
                 "Variant B" mark once available (see LOGO_INTEGRATION_PLAN.md §3) */}
             <img
@@ -153,10 +186,13 @@ export default function Navbar() {
                 by Austrum
               </span>
             </div>
-          </Link>
+            </Link>
+          </div>
 
-          {/* Desktop nav */}
-          <div className="hidden md:flex items-center gap-1">
+          {/* RIGHT — desktop nav + mobile avatar (far right) */}
+          <div className="flex items-center">
+            {/* Desktop nav */}
+            <div className="hidden md:flex items-center gap-1">
             <Link to="/" className={navCls("/")}>
               <Home size={14} strokeWidth={2.5} />
               Home
@@ -187,25 +223,18 @@ export default function Navbar() {
                   My Bookings
                 </Link>
                 <div className="ml-2">
-                  <AvatarDropdown user={user} onLogout={handleLogout} />
+                  <AvatarDropdown user={user} onLogout={handleLogout} open={avatarOpen} onOpenChange={handleAvatarOpenChange} />
                 </div>
               </>
             )}
           </div>
 
-          {/* Mobile */}
-          <div className="md:hidden flex items-center gap-2">
+            {/* Mobile avatar — far right */}
             {isAuthenticated && (
-              <AvatarDropdown user={user} onLogout={handleLogout} />
+              <div className="md:hidden">
+                <AvatarDropdown user={user} onLogout={handleLogout} open={avatarOpen} onOpenChange={handleAvatarOpenChange} />
+              </div>
             )}
-            <button
-              className="p-2 rounded-lg text-white/80 hover:text-white hover:bg-white/10
-                transition-all focus:outline-none focus:ring-2 focus:ring-white/30"
-              onClick={() => setOpen(v => !v)}
-              aria-label={open ? "Close menu" : "Open menu"}
-            >
-              {open ? <X size={20} strokeWidth={2.5} /> : <Menu size={20} strokeWidth={2.5} />}
-            </button>
           </div>
         </div>
       </div>
@@ -240,9 +269,6 @@ export default function Navbar() {
                 <CalendarDays size={16} strokeWidth={2} /> My Bookings
               </Link>
               <div className="h-px bg-white/10 my-1" />
-              <Link to="/profile" className={mobileNavCls("/profile")} onClick={close}>
-                <User size={16} strokeWidth={2} /> Profile
-              </Link>
               <button
                 onClick={handleLogout}
                 className="flex items-center gap-2.5 px-3.5 py-3 rounded-xl text-red-300/80

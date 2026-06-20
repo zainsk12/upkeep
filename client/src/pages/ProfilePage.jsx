@@ -11,7 +11,7 @@ function getInitials(name = "") {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-function ProfileField({ label, id, icon: Icon, value, onChange, disabled = false, placeholder, type = "text" }) {
+function ProfileField({ label, id, icon: Icon, value, onChange, disabled = false, placeholder, type = "text", disabledNote }) {
   return (
     <div className="flex flex-col gap-1.5">
       <label
@@ -35,10 +35,10 @@ function ProfileField({ label, id, icon: Icon, value, onChange, disabled = false
             : "bg-card text-text border-border focus:ring-primary/20 focus:border-primary/50 hover:border-border"
           }`}
       />
-      {disabled && (
+      {disabled && disabledNote && (
         <p className="text-xs text-muted mt-0.5 pl-0.5 flex items-center gap-1">
           <CheckCircle2 size={10} className="text-muted" />
-          Email cannot be changed.
+          {disabledNote}
         </p>
       )}
     </div>
@@ -49,14 +49,15 @@ export default function ProfilePage() {
   const { user, login } = useAuth();
   const navigate = useNavigate();
 
-  const [form, setForm]       = useState({ name: "", phone: "", address: "" });
+  // Phone is display-only (not editable yet), so it is NOT part of the editable
+  // form — only name + address are submitted. Phone is shown from `user.phone`.
+  const [form, setForm]       = useState({ name: "", address: "" });
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (user) {
       setForm({
         name:    user.name    || "",
-        phone:   user.phone   || "",
         address: user.address || "",
       });
     }
@@ -69,10 +70,6 @@ export default function ProfilePage() {
     e.preventDefault();
     if (!form.name.trim()) {
       toast.error("Name cannot be empty.");
-      return;
-    }
-    if (form.phone && !/^\d{10}$/.test(form.phone)) {
-      toast.error("Phone must be exactly 10 digits.");
       return;
     }
     setLoading(true);
@@ -91,9 +88,10 @@ export default function ProfilePage() {
     <div className="min-h-screen bg-bg py-10 px-4">
       <div className="max-w-2xl mx-auto flex flex-col gap-8">
 
-        {/* Back link */}
+        {/* Back link — Update Profile is reached via Avatar → Account, so it
+            returns to the Account menu (mirrors Change Password). */}
         <button
-          onClick={() => navigate("/settings")}
+          onClick={() => navigate("/settings/account")}
           className="flex items-center gap-1.5 text-primary/60 hover:text-primary text-sm font-medium mb-4 transition-colors group"
         >
           <ChevronRight
@@ -101,7 +99,7 @@ export default function ProfilePage() {
             strokeWidth={2.2}
             className="rotate-180 group-hover:-translate-x-0.5 transition-transform"
           />
-          Back to Settings
+          Back to Account
         </button>
 
         {/* Page title */}
@@ -144,14 +142,17 @@ export default function ProfilePage() {
               value={user?.email || ""}
               onChange={() => {}}
               disabled
+              disabledNote="Email cannot be changed."
               placeholder="your@email.com"
             />
             <ProfileField
               label="Phone Number"
               id="phone"
               icon={Phone}
-              value={form.phone}
-              onChange={handleChange}
+              value={user?.phone || ""}
+              onChange={() => {}}
+              disabled
+              disabledNote="Phone number cannot be changed."
               placeholder="10-digit mobile number"
             />
             <ProfileField

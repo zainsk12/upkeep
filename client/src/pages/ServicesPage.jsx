@@ -78,7 +78,12 @@ function BookingModal({ service, timeSlots, onClose }) {
     return () => clearInterval(tick);
   }, []);
 
-  const [form, setForm] = useState({ date: "", time: "", address: "", serviceIssue: "", notes: "" });
+  // Prefill the service address from the user's saved profile address (editable).
+  // This is a per-booking copy only — edits here are stored on the booking record
+  // and never written back to the user's profile (see booking flow).
+  const [form, setForm] = useState(() => ({
+    date: "", time: "", address: user?.address || "", serviceIssue: "", notes: "",
+  }));
   const [useAltPhone, setUseAltPhone]     = useState(false);
   const [altPhone, setAltPhone]           = useState("");
   const [altPhoneError, setAltPhoneError] = useState("");

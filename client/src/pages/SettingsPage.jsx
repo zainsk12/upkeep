@@ -8,13 +8,6 @@ import { getTheme, setTheme } from "../utils/theme";
 /* ─── Settings nav items ─────────────────────────────────────────────────── */
 const SETTINGS_ITEMS = [
   {
-    id: "account",
-    icon: User,
-    label: "Account",
-    description: "Update your profile or change your password",
-    to: "/settings/account",
-  },
-  {
     id: "appearance",
     icon: Palette,
     label: "Appearance",
@@ -261,7 +254,7 @@ export default function SettingsPage() {
   const isRoot           = !isAppearance && !isGettingStarted && !isAccount;
 
   let heading    = "Settings";
-  let subheading = "Manage your account and preferences";
+  let subheading = "Manage your app preferences and find help";
   if (isAppearance)     { heading = "Appearance";   subheading = "Switch between light and dark theme"; }
   if (isGettingStarted) { heading = "Help & FAQs";  subheading = "Everything you need to know about using UpKeep"; }
   if (isAccount)        { heading = "Account";       subheading = "Update your profile or change your password"; }
@@ -290,21 +283,21 @@ export default function SettingsPage() {
     <div className="min-h-screen bg-bg py-10 px-4">
       <div className="max-w-2xl mx-auto flex flex-col gap-8">
 
-        {/* Back button (sub-pages only) */}
-        {!isRoot && (
-          <button
-            onClick={() => navigate("/settings")}
-            className="flex items-center gap-1.5 text-primary/60 hover:text-primary
-              text-sm font-medium mb-2 transition-colors group w-fit"
-          >
-            <ChevronRight
-              size={14}
-              strokeWidth={2.2}
-              className="rotate-180 group-hover:-translate-x-0.5 transition-transform"
-            />
-            Back to Settings
-          </button>
-        )}
+        {/* Back navigation. Root Settings and the Account page (reached from the
+            avatar dropdown) return Home; the other sub-pages return to the
+            Settings list. */}
+        <button
+          onClick={() => navigate(isRoot || isAccount ? "/" : "/settings")}
+          className="flex items-center gap-1.5 text-primary/60 hover:text-primary
+            text-sm font-medium mb-2 transition-colors group w-fit"
+        >
+          <ChevronRight
+            size={14}
+            strokeWidth={2.2}
+            className="rotate-180 group-hover:-translate-x-0.5 transition-transform"
+          />
+          {isRoot || isAccount ? "Back to Home" : "Back to Settings"}
+        </button>
 
         {/* Page title */}
         <div>

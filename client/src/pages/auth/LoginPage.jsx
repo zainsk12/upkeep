@@ -28,7 +28,7 @@ function getCredentialType(value) {
 }
 
 // Basic phone hint for placeholder
-const PLACEHOLDER = "9876543210 or you@email.com";
+const PLACEHOLDER = "Enter mobile number or email";
 
 export default function LoginPage() {
   const { login }  = useAuth();
@@ -191,7 +191,7 @@ export default function LoginPage() {
               label="Password"
               id="password"
               type={showPass ? "text" : "password"}
-              placeholder="Your password"
+              placeholder="Enter your password"
               value={form.password}
               onChange={handleChange}
               error={errors.password}

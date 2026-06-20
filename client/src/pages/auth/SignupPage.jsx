@@ -299,7 +299,7 @@ export default function SignupPage() {
         <FormInput
           label="Full Name"
           id="name"
-          placeholder="e.g. Zain Shaikh"
+          placeholder="Enter your full name"
           value={form.name}
           onChange={handleChange}
           onBlur={handleBlur}
@@ -320,7 +320,7 @@ export default function SignupPage() {
               type="tel"
               inputMode="numeric"
               maxLength={10}
-              placeholder="9876543210"
+              placeholder="Enter mobile number"
               value={form.phone}
               onChange={handleChange}
               onBlur={handleBlur}
@@ -339,7 +339,7 @@ export default function SignupPage() {
           label={<>Email Address <span className="text-white/35 text-xs font-normal">(optional)</span></>}
           id="email"
           type="email"
-          placeholder="you@email.com"
+          placeholder="Enter email address"
           value={form.email}
           onChange={handleChange}
           onBlur={handleBlur}
@@ -350,7 +350,7 @@ export default function SignupPage() {
           label="Password"
           id="password"
           type={showPass ? "text" : "password"}
-          placeholder="Min. 8 characters"
+          placeholder="Create a password"
           value={form.password}
           onChange={handleChange}
           onBlur={handleBlur}
