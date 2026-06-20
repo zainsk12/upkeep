@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Sun, Moon, User, Palette, BookOpen, ChevronRight, ChevronDown, KeyRound } from "lucide-react";
 import { getTheme, setTheme } from "../utils/theme";
-import { useAuth } from "../context/AuthContext";
 
 /* ─── Settings nav items ─────────────────────────────────────────────────── */
 const SETTINGS_ITEMS = [
@@ -255,7 +254,6 @@ function AccountPanel({ items }) {
 export default function SettingsPage() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const { user } = useAuth();
 
   const isAppearance     = pathname === "/settings/appearance";
   const isGettingStarted = pathname === "/settings/getting-started";
@@ -282,14 +280,9 @@ export default function SettingsPage() {
       icon: KeyRound,
       label: "Change Password",
       description: "Verify via OTP, then set a new password",
-      onClick: () => {
-        // Reuse the Forgot/Reset Password flow. Seed the identifier (phone first,
-        // email fallback) so it prefills and runs the same Firebase OTP path.
-        try {
-          sessionStorage.setItem("forgotPasswordIdentifier", user?.phone || user?.email || "");
-        } catch { /* private mode / quota — non-fatal, page just starts empty */ }
-        navigate("/forgot-password");
-      },
+      // Dedicated authenticated flow — reuses the same OTP/reset logic via the
+      // shared usePasswordResetFlow hook (NOT a redirect to /forgot-password).
+      onClick: () => navigate("/settings/change-password"),
     },
   ];
 

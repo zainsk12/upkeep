@@ -5,26 +5,19 @@
 //   Step 3  Create new password— strength meter + confirm
 //   Step 4  Success            — auto-redirect to login
 //
-// Phone OTP reuses the exact Firebase Phone Authentication setup used at signup
-// (services/firebase.js + an invisible reCAPTCHA). Email OTP is fully server-side.
+// The OTP/Firebase/reset business logic lives in usePasswordResetFlow (shared
+// with the authenticated ChangePasswordPage). This page owns only the recovery
+// UX: wizard persistence, the carried-from-login identifier, and rendering.
 
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "../../utils/toast";
-import {
-  forgotPasswordApi,
-  verifyResetOtpApi,
-  resetPasswordApi,
-} from "../../services/authApi";
-import {
-  auth,
-  RecaptchaVerifier,
-  signInWithPhoneNumber,
-  firebaseAuthErrorMessage,
-  getAppCheckToken,
-} from "../../services/firebase";
-import { normalizePhone, isValidIndianPhone, toE164 } from "../../utils/phone";
+import { firebaseAuthErrorMessage } from "../../services/firebase";
+import { isValidIndianPhone } from "../../utils/phone";
 import { scorePassword, passwordError } from "../../utils/passwordStrength";
+import { usePasswordResetFlow, describeAuthError } from "../../hooks/usePasswordResetFlow";
+import useResendTimer from "../../hooks/useResendTimer";
+import OtpBoxes from "../../components/OtpBoxes";
 import {
   ShieldCheck, Mail, Phone, ArrowLeft, RotateCcw, CheckCircle2,
   Lock, KeyRound, ArrowRight,
@@ -35,136 +28,7 @@ const isEmail      = (s) => s.includes("@");
 const isValidEmail = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
 const isValidPhone = (s) => isValidIndianPhone(s);
 
-// Turn any thrown error into a user-facing message WITHOUT misclassifying it.
-// Three distinct cases that previously all collapsed into "Cannot reach the
-// server" because they share a falsy `err.response`:
-//   1. Axios error WITH a response  → use the server's message.
-//   2. Firebase phone-auth error    → has a string `.code` like "auth/..."
-//      (NO `.response`). Surface the real Firebase reason — this is the case
-//      that was being mislabeled as a network outage and hiding the bug.
-//   3. True transport failure        → axios network/timeout error (ERR_NETWORK,
-//      ECONNABORTED, "Network Error") with no response and no auth code.
-const isFirebaseError = (err) =>
-  typeof err?.code === "string" && err.code.startsWith("auth/");
-const isNetworkError = (err) =>
-  !err?.response &&
-  (err?.code === "ERR_NETWORK" ||
-    err?.code === "ECONNABORTED" ||
-    err?.message === "Network Error");
-
-function describeAuthError(err) {
-  if (err?.response) {
-    return err.response.data?.message || "Something went wrong. Please try again.";
-  }
-  if (isFirebaseError(err)) {
-    return firebaseAuthErrorMessage(err);
-  }
-  if (isNetworkError(err)) {
-    return "Cannot reach the server. Check your connection and try again.";
-  }
-  // Plain thrown Error (e.g. "Please request a new code.") or anything else —
-  // never invent a network failure; show the actual message.
-  return err?.message || firebaseAuthErrorMessage(err);
-}
-
-const RESEND_COOLDOWN = 60; // seconds
-const REDIRECT_DELAY  = 4;  // seconds on the success screen
-
-// ── Resend countdown hook ───────────────────────────────────────────────────────
-function useResendTimer() {
-  const [seconds, setSeconds] = useState(RESEND_COOLDOWN);
-  const timerRef = useRef(null);
-  const start = useCallback(() => {
-    setSeconds(RESEND_COOLDOWN);
-    clearInterval(timerRef.current);
-    timerRef.current = setInterval(() => {
-      setSeconds((s) => { if (s <= 1) { clearInterval(timerRef.current); return 0; } return s - 1; });
-    }, 1000);
-  }, []);
-  useEffect(() => () => clearInterval(timerRef.current), []);
-  return { seconds, start, canResend: seconds === 0 };
-}
-
-// ── 6-box OTP input ──────────────────────────────────────────────────────────────
-// Declared at module scope (NOT inside the page) so it isn't remounted on every
-// parent render — that would steal focus mid-typing.
-function OtpBoxes({ value, onChange, onComplete, error, disabled }) {
-  const refs = useRef([]);
-  const digits = Array.from({ length: 6 }, (_, i) => value[i] || "");
-
-  const setAt = (i, d) => {
-    const next = (value.slice(0, i) + d + value.slice(i + 1)).slice(0, 6);
-    onChange(next);
-    return next;
-  };
-
-  const handleChange = (i, e) => {
-    const raw = e.target.value.replace(/\D/g, "");
-    if (!raw) { setAt(i, ""); return; }
-    // Take the last entered digit (handles overwrite), advance focus.
-    const next = setAt(i, raw[raw.length - 1]);
-    if (i < 5) refs.current[i + 1]?.focus();
-    if (next.length === 6 && !next.includes("")) onComplete?.(next);
-  };
-
-  const handleKeyDown = (i, e) => {
-    if (e.key === "Backspace" && !digits[i] && i > 0) {
-      refs.current[i - 1]?.focus();
-      setAt(i - 1, "");
-    }
-    if (e.key === "ArrowLeft"  && i > 0) refs.current[i - 1]?.focus();
-    if (e.key === "ArrowRight" && i < 5) refs.current[i + 1]?.focus();
-  };
-
-  const handlePaste = (e) => {
-    e.preventDefault();
-    const pasted = (e.clipboardData.getData("text") || "").replace(/\D/g, "").slice(0, 6);
-    if (!pasted) return;
-    onChange(pasted);
-    const focusIdx = Math.min(pasted.length, 5);
-    refs.current[focusIdx]?.focus();
-    if (pasted.length === 6) onComplete?.(pasted);
-  };
-
-  return (
-    <div>
-      <div
-        className="flex justify-between gap-2"
-        onPaste={handlePaste}
-        role="group"
-        aria-label="6-digit verification code"
-      >
-        {digits.map((d, i) => (
-          <input
-            key={i}
-            ref={(el) => (refs.current[i] = el)}
-            type="text"
-            inputMode="numeric"
-            autoComplete={i === 0 ? "one-time-code" : "off"}
-            maxLength={1}
-            value={d}
-            disabled={disabled}
-            aria-label={`Digit ${i + 1} of 6`}
-            aria-invalid={!!error}
-            aria-describedby={error ? "otp-error" : undefined}
-            onChange={(e) => handleChange(i, e)}
-            onKeyDown={(e) => handleKeyDown(i, e)}
-            onFocus={(e) => e.target.select()}
-            className={[
-              "w-full aspect-square min-w-0 text-center rounded-xl bg-white/10 border",
-              "text-white text-xl font-semibold font-mono outline-none transition-colors",
-              "focus:bg-white/15 disabled:opacity-50",
-              error ? "border-red-400/60" : "border-white/15 focus:border-blush/60",
-            ].join(" ")}
-          />
-        ))}
-      </div>
-      {error && (
-        <p id="otp-error" role="alert" className="text-red-400 text-xs mt-2 text-center">{error}</p>
-      )}
-    </div>
-  );
-}
+const REDIRECT_DELAY = 4; // seconds on the success screen
 
 // ── Shared layout shell (module scope — keeps reCAPTCHA node stable) ──────────────
 function LayoutShell({ children, recaptchaRef }) {
@@ -297,14 +161,19 @@ export default function ForgotPasswordPage() {
     catch { return ""; }
   }, []);
 
+  // Shared business logic (Firebase reCAPTCHA + backend calls + channel state).
+  const flow = usePasswordResetFlow({
+    recaptchaContainerId: "recaptcha-container-reset",
+    initialChannel:       restored?.channel ?? null,
+    initialDestination:   restored?.destination ?? "",
+  });
+  const { channel, destination } = flow;
+
   const [step, setStep] = useState(restored?.step ?? 1);              // 1..4
   const [identifier, setIdentifier]   = useState(carriedIdentifier || restored?.identifier || ""); // raw input
   // Info banner shown only when the field was prefilled from Login; cleared the
   // moment the user edits the value.
   const [showCarriedInfo, setShowCarriedInfo] = useState(!!carriedIdentifier);
-  const [channel, setChannel]         = useState(restored?.channel ?? null);  // "email" | "phone"
-  const [destination, setDestination] = useState(restored?.destination ?? ""); // masked dest from server
-  const [resetToken, setResetToken]   = useState("");
 
   // Step-1
   const [idError, setIdError] = useState("");
@@ -330,42 +199,12 @@ export default function ForgotPasswordPage() {
   // Step-4
   const [countdown, setCountdown] = useState(REDIRECT_DELAY);
 
-  // Firebase phone-auth refs
-  const recaptchaVerifierRef  = useRef(null);
-  const recaptchaContainerRef = useRef(null);
-  const confirmationRef       = useRef(null);
-
   // Synchronous in-flight guards. Unlike the loading* state (which updates
   // asynchronously), these flip immediately, so an OTP auto-submit firing in the
   // same tick as a Verify-button click (or a double reset submit) can't launch a
   // second request.
   const verifyingRef = useRef(false);
   const resettingRef = useRef(false);
-
-  const getRecaptchaVerifier = () => {
-    if (!recaptchaVerifierRef.current) {
-      try {
-        recaptchaVerifierRef.current = new RecaptchaVerifier(
-          auth,
-          recaptchaContainerRef.current || "recaptcha-container-reset",
-          { size: "invisible" }
-        );
-      } catch (err) {
-        console.error(
-          "[ForgotPassword] RecaptchaVerifier init failed:",
-          err?.code, err?.message, err
-        );
-        throw err;
-      }
-    }
-    return recaptchaVerifierRef.current;
-  };
-  const resetRecaptcha = () => {
-    try { recaptchaVerifierRef.current?.clear(); } catch { /* noop */ }
-    recaptchaVerifierRef.current = null;
-    if (recaptchaContainerRef.current) recaptchaContainerRef.current.innerHTML = "";
-  };
-  useEffect(() => () => resetRecaptcha(), []);
 
   // Persist non-sensitive progress so a refresh / accidental navigation resumes.
   // Steps ≥ 3 (and the success screen) carry the reset token, which we never
@@ -387,22 +226,6 @@ export default function ForgotPasswordPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const sendFirebaseOtp = async () => {
-    const phoneE164 = toE164(identifier);
-    console.debug("[ForgotPassword] sending Firebase SMS OTP to", phoneE164);
-    try {
-      const verifier = getRecaptchaVerifier();
-      confirmationRef.current = await signInWithPhoneNumber(auth, phoneE164, verifier);
-      console.debug("[ForgotPassword] signInWithPhoneNumber resolved — confirmation ready");
-    } catch (err) {
-      console.error(
-        "[ForgotPassword] signInWithPhoneNumber failed:",
-        err?.code, err?.message, err
-      );
-      throw err;
-    }
-  };
-
   // ── Step 1: identify account ──────────────────────────────────────────────────
   const handleSendCode = async (e) => {
     e.preventDefault();
@@ -417,20 +240,9 @@ export default function ForgotPasswordPage() {
     setLoadingSend(true);
     const toastId = toast.loading("Sending verification code…");
     try {
-      const { data } = await forgotPasswordApi({ identifier: id });
-      console.debug("[ForgotPassword] /forgot-password OK:", data);
-      setChannel(data.channel);
-      setDestination(data.destination || "");
-
-      if (data.channel === "phone") {
-        // Backend only validated format; the OTP itself comes from Firebase.
-        // If this throws it's a FIREBASE error (no `err.response`), NOT a
-        // network failure — describeAuthError keeps the two apart.
-        await sendFirebaseOtp();
-      }
-
+      const { channel: ch } = await flow.requestCode(id);
       toast.success(
-        data.channel === "email" ? "Code sent to your email." : "Code sent to your phone.",
+        ch === "email" ? "Code sent to your email." : "Code sent to your phone.",
         { id: toastId }
       );
       setOtp("");
@@ -438,14 +250,8 @@ export default function ForgotPasswordPage() {
       setStep(2);
       startTimer();
     } catch (err) {
-      // Could be the axios /forgot-password call OR Firebase signInWithPhoneNumber.
-      // Both used to fall through to "Cannot reach the server" because Firebase
-      // errors carry no `.response`; surface the real reason instead.
-      console.error(
-        "[ForgotPassword] handleSendCode failed:",
-        err?.code, err?.message, err
-      );
-      resetRecaptcha();
+      console.error("[ForgotPassword] handleSendCode failed:", err?.code, err?.message, err);
+      flow.resetRecaptcha();
       toast.error(describeAuthError(err), { id: toastId });
     } finally {
       setLoadingSend(false);
@@ -454,10 +260,6 @@ export default function ForgotPasswordPage() {
 
   // ── Step 2: verify code ───────────────────────────────────────────────────────
   const handleVerify = async (codeArg) => {
-    // Drop any concurrent invocation (auto-submit-on-complete racing the Verify
-    // button / Enter key). The ref flips synchronously so the second call returns
-    // before issuing a duplicate request — critical for the phone flow where a
-    // double confirmationResult.confirm() would throw.
     if (verifyingRef.current) return;
 
     const code = (codeArg || otp).trim();
@@ -468,33 +270,11 @@ export default function ForgotPasswordPage() {
     setOtpError("");
     const toastId = toast.loading("Verifying code…");
     try {
-      let payload;
-      if (channel === "phone") {
-        if (!confirmationRef.current) throw new Error("Please request a new code.");
-        const credential = await confirmationRef.current.confirm(code);
-        const firebaseIdToken = await credential.user.getIdToken();
-        // Attach an App Check token when available (optional anti-automation
-        // hardening — server enforces only when App Check is configured).
-        const appCheckToken = await getAppCheckToken();
-        payload = {
-          identifier: identifier.trim(),
-          firebaseIdToken,
-          ...(appCheckToken ? { appCheckToken } : {}),
-        };
-      } else {
-        payload = { identifier: identifier.trim(), otp: code };
-      }
-
-      const { data } = await verifyResetOtpApi(payload);
-      console.debug("[ForgotPassword] verify-reset-otp OK — reset token issued");
-      setResetToken(data.resetToken);
+      await flow.verifyCode({ identifier: identifier.trim(), code });
       toast.success("Verified! Set your new password.", { id: toastId });
       setStep(3);
     } catch (err) {
-      console.error(
-        "[ForgotPassword] handleVerify failed:",
-        err?.code, err?.message, err
-      );
+      console.error("[ForgotPassword] handleVerify failed:", err?.code, err?.message, err);
       // Firebase wrong/expired code → inline; backend 4xx → inline; else toast.
       const fbCode = err?.code === "auth/invalid-verification-code" || err?.code === "auth/code-expired";
       if (fbCode) {
@@ -516,22 +296,14 @@ export default function ForgotPasswordPage() {
     if (!canResend || loadingVerify) return;
     const toastId = toast.loading("Resending code…");
     try {
-      if (channel === "phone") {
-        resetRecaptcha();
-        await sendFirebaseOtp();
-      } else {
-        await forgotPasswordApi({ identifier: identifier.trim() });
-      }
+      await flow.resendCode(identifier.trim());
       toast.success("A new code is on its way.", { id: toastId });
       setOtp("");
       setOtpError("");
       startTimer();
     } catch (err) {
-      console.error(
-        "[ForgotPassword] handleResend failed:",
-        err?.code, err?.message, err
-      );
-      if (channel === "phone") resetRecaptcha();
+      console.error("[ForgotPassword] handleResend failed:", err?.code, err?.message, err);
+      if (channel === "phone") flow.resetRecaptcha();
       toast.error(describeAuthError(err), { id: toastId });
     }
   };
@@ -555,16 +327,13 @@ export default function ForgotPasswordPage() {
     setLoadingReset(true);
     const toastId = toast.loading("Updating your password…");
     try {
-      await resetPasswordApi({ identifier: identifier.trim(), resetToken, newPassword: pw });
+      await flow.submitNewPassword({ identifier: identifier.trim(), newPassword: pw });
       toast.success("Password updated!", { id: toastId });
       // Reset complete — drop the carried identifier so it can never resurface.
       clearForgotIdentifier();
       setStep(4);
     } catch (err) {
-      console.error(
-        "[ForgotPassword] handleReset failed:",
-        err?.code, err?.message, err
-      );
+      console.error("[ForgotPassword] handleReset failed:", err?.code, err?.message, err);
       if (!err.response) {
         // No server response (network drop / timeout): the request may have
         // SUCCEEDED server-side. Never imply a definite failure — guide the user
@@ -596,9 +365,8 @@ export default function ForgotPasswordPage() {
     setStep(1);
     setOtp(""); setOtpError("");
     setPw(""); setPw2(""); setPwErrors({});
-    setResetToken(""); setChannel(null); setDestination("");
     setNetworkAmbiguous(false);
-    resetRecaptcha();
+    flow.reset();
   };
 
   // ── Step 4: success auto-redirect ─────────────────────────────────────────────
@@ -614,7 +382,7 @@ export default function ForgotPasswordPage() {
 
   // STEP 1 — Identify account
   if (step === 1) return (
-    <LayoutShell recaptchaRef={recaptchaContainerRef}>
+    <LayoutShell recaptchaRef={flow.recaptchaContainerRef}>
       <Link to="/login" className="flex items-center gap-1.5 text-white/40 hover:text-white/70 text-sm mb-6 transition-colors">
         <ArrowLeft size={15} /> Back to login
       </Link>
@@ -684,7 +452,7 @@ export default function ForgotPasswordPage() {
 
   // STEP 2 — Verify OTP
   if (step === 2) return (
-    <LayoutShell recaptchaRef={recaptchaContainerRef}>
+    <LayoutShell recaptchaRef={flow.recaptchaContainerRef}>
       <button type="button" onClick={resetFlow}
         className="flex items-center gap-1.5 text-white/40 hover:text-white/70 text-sm mb-6 transition-colors">
         <ArrowLeft size={15} /> Back
@@ -729,7 +497,7 @@ export default function ForgotPasswordPage() {
 
   // STEP 3 — Create new password
   if (step === 3) return (
-    <LayoutShell recaptchaRef={recaptchaContainerRef}>
+    <LayoutShell recaptchaRef={flow.recaptchaContainerRef}>
       <StepDots step={3} />
       <div className="flex items-center justify-center w-16 h-16 rounded-2xl bg-blush/15 border border-blush/25 mx-auto mb-5">
         <Lock size={26} className="text-blush" />
@@ -839,7 +607,7 @@ export default function ForgotPasswordPage() {
 
   // STEP 4 — Success
   return (
-    <LayoutShell recaptchaRef={recaptchaContainerRef}>
+    <LayoutShell recaptchaRef={flow.recaptchaContainerRef}>
       <div className="text-center py-2">
         <div className="relative mx-auto mb-6 w-20 h-20">
           <span className="absolute inset-0 rounded-full bg-emerald-500/20 animate-ping" />

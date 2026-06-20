@@ -15,6 +15,7 @@ import SignupPage         from "./pages/auth/SignupPage";
 import ForgotPasswordPage from "./pages/auth/ForgotPasswordPage";
 import ProfilePage    from "./pages/ProfilePage";
 import SettingsPage   from "./pages/SettingsPage";
+import ChangePasswordPage from "./pages/ChangePasswordPage";
 import ServicesPage   from "./pages/ServicesPage";
 import MyBookingsPage from "./pages/MyBookingsPage";
 import AllReviewsPage from "./pages/AllReviewsPage";
@@ -88,6 +89,9 @@ export default function App() {
             } />
             <Route path="/settings/account" element={
               <PrivateRoute><><Navbar /><SettingsPage /></></PrivateRoute>
+            } />
+            <Route path="/settings/change-password" element={
+              <PrivateRoute><><Navbar /><ChangePasswordPage /></></PrivateRoute>
             } />
             <Route path="/settings/appearance" element={
               <PrivateRoute><><Navbar /><SettingsPage /></></PrivateRoute>
