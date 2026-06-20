@@ -8,6 +8,7 @@ import { initializeTheme } from "./utils/theme";
 import ErrorBoundary from "./components/ErrorBoundary";
 import Navbar from "./components/Navbar";
 import PrivateRoute from "./components/PrivateRoute";
+import ScrollToTop from "./components/ScrollToTop";
 
 import LandingPage    from "./pages/LandingPage";
 import LoginPage          from "./pages/auth/LoginPage";
@@ -41,6 +42,10 @@ export default function App() {
     <ErrorBoundary>
       <AuthProvider>
         <BrowserRouter>
+          {/* Resets window scroll to top on every route change (must live
+              inside BrowserRouter to read the active location). */}
+          <ScrollToTop />
+
           <Toaster
             position="top-right"
             closeButton

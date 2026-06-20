@@ -149,6 +149,20 @@ export default function Navbar() {
       : "text-white/70 hover:text-white hover:bg-white/10",
   ].join(" ");
 
+  // Mobile-only hamburger button. Rendered on the far left when logged in
+  // (avatar balances the far right) and on the far right when logged out
+  // (branding takes the left). `edgeCls` sets the edge-hugging negative margin.
+  const hamburgerButton = (edgeCls) => (
+    <button
+      className={`md:hidden p-2 ${edgeCls} rounded-lg text-white/80 hover:text-white hover:bg-white/10
+        transition-all focus:outline-none focus:ring-2 focus:ring-white/30`}
+      onClick={toggleMobileMenu}
+      aria-label={open ? "Close menu" : "Open menu"}
+    >
+      {open ? <X size={20} strokeWidth={2.5} /> : <Menu size={20} strokeWidth={2.5} />}
+    </button>
+  );
+
   return (
     <nav
       className="bg-primary dark:bg-primary-dark sticky top-0 z-50"
@@ -157,17 +171,31 @@ export default function Navbar() {
       <div className="max-w-7xl mx-auto px-4 sm:px-5 lg:px-8">
         <div className="flex items-center justify-between h-16 sm:h-[68px]">
 
-          {/* LEFT — mobile hamburger (far left) + desktop logo lockup */}
-          <div className="flex items-center">
-            {/* Hamburger — mobile only, far left */}
-            <button
-              className="md:hidden p-2 -ml-1 rounded-lg text-white/80 hover:text-white hover:bg-white/10
-                transition-all focus:outline-none focus:ring-2 focus:ring-white/30"
-              onClick={toggleMobileMenu}
-              aria-label={open ? "Close menu" : "Open menu"}
-            >
-              {open ? <X size={20} strokeWidth={2.5} /> : <Menu size={20} strokeWidth={2.5} />}
-            </button>
+          {/* LEFT — mobile hamburger (logged-in) / mobile branding (logged-out)
+              + desktop logo lockup */}
+          <div className="flex items-center min-w-0">
+            {/* Hamburger — mobile only, far left when logged in */}
+            {isAuthenticated && hamburgerButton("-ml-1")}
+
+            {/* Mobile branding — logged-out only. Restores the logo + wordmark on
+                the left so the navbar stays balanced without an avatar on the
+                right. Mirrors the desktop lockup; mobile-only (md:hidden). */}
+            {!isAuthenticated && (
+              <Link to="/" className="flex md:hidden items-center gap-2.5 group min-w-0" onClick={close}>
+                <img
+                  src="/upkeep_logo.png"
+                  alt="UpKeep by Austrum"
+                  className="h-8 w-8 rounded-full object-cover border-2 border-white/20
+                    group-hover:border-white/50 shadow-sm transition-all duration-200 flex-shrink-0"
+                />
+                <div className="flex flex-col justify-center min-w-0">
+                  <span className="text-white text-lg leading-tight nav-brand truncate">UpKeep</span>
+                  <span className="text-white/35 text-[9px] font-medium leading-none tracking-[0.12em] uppercase truncate">
+                    by Austrum
+                  </span>
+                </div>
+              </Link>
+            )}
 
             {/* Logo lockup — desktop only (hidden on mobile to avoid duplicate
                 branding with the Hero section) */}
@@ -229,12 +257,16 @@ export default function Navbar() {
             )}
           </div>
 
-            {/* Mobile avatar — far right */}
+            {/* Mobile avatar — far right (logged in) */}
             {isAuthenticated && (
               <div className="md:hidden">
                 <AvatarDropdown user={user} onLogout={handleLogout} open={avatarOpen} onOpenChange={handleAvatarOpenChange} />
               </div>
             )}
+
+            {/* Mobile hamburger — far right (logged out), balances the branding
+                now shown on the left */}
+            {!isAuthenticated && hamburgerButton("-mr-1")}
           </div>
         </div>
       </div>
@@ -268,14 +300,6 @@ export default function Navbar() {
               <Link to="/my-bookings" className={mobileNavCls("/my-bookings")} onClick={close}>
                 <CalendarDays size={16} strokeWidth={2} /> My Bookings
               </Link>
-              <div className="h-px bg-white/10 my-1" />
-              <button
-                onClick={handleLogout}
-                className="flex items-center gap-2.5 px-3.5 py-3 rounded-xl text-red-300/80
-                  hover:text-red-300 hover:bg-red-500/10 text-sm text-left nav-link transition-all duration-150"
-              >
-                <LogOut size={16} strokeWidth={2} /> Logout
-              </button>
             </>
           )}
         </div>

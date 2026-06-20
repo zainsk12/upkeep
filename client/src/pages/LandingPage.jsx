@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import useReveal from "../hooks/useReveal";
 import useCountUp from "../hooks/useCountUp";
+import SectionDivider from "../components/SectionDivider";
 import { fetchHomepageReviews, fetchReviewStats } from "../services/reviewApi";
 import { getPublicServices } from "../services/adminApi";
 import {
@@ -303,7 +304,7 @@ function TestimonialsSection() {
                 bg-card border border-border text-text hover:border-primary/25 hover:text-primary
                 font-semibold text-sm hover:-translate-y-0.5 hover:scale-[1.02] active:scale-95
                 will-change-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30
-                transition-all duration-200 shadow-sm hover:shadow-md"
+                transition-all duration-200 shadow-sm hover:shadow-[0_10px_28px_rgba(14,74,99,0.20)]"
             >
               View All Reviews <ArrowRight size={14} strokeWidth={2.5} />
             </Link>
@@ -432,7 +433,7 @@ function HomepageServicesSection() {
             bg-card border border-border text-text hover:border-primary/25 hover:text-primary
             font-semibold text-sm hover:-translate-y-0.5 hover:scale-[1.02] active:scale-95
             will-change-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30
-            transition-all duration-200 shadow-sm hover:shadow-md"
+            transition-all duration-200 shadow-sm hover:shadow-[0_10px_28px_rgba(14,74,99,0.20)]"
         >
           View All Services <ArrowRight size={14} strokeWidth={2.5} />
         </Link>
@@ -576,7 +577,7 @@ export default function LandingPage() {
                   bg-blush hover:bg-blush/85 text-primary-dark font-bold text-sm
                   transition-all duration-200 hover:-translate-y-0.5 hover:scale-[1.02]
                   active:scale-95 will-change-transform
-                  shadow-lg shadow-black/25
+                  shadow-lg shadow-black/25 hover:shadow-[0_12px_34px_rgba(193,106,33,0.40)]
                   focus:outline-none focus-visible:ring-2 focus-visible:ring-blush/60"
               >
                 Book a Service <ArrowRight size={14} strokeWidth={2.5} />
@@ -677,6 +678,8 @@ export default function LandingPage() {
       {/* ── SERVICE CATEGORIES ── */}
       <HomepageServicesSection />
 
+      <SectionDivider />
+
       {/* ── HOW IT WORKS ── */}
       <section ref={howItWorks.ref} className="py-16 md:py-20 bg-bg">
         <div className="max-w-7xl mx-auto px-6 lg:px-8">
@@ -723,6 +726,8 @@ export default function LandingPage() {
         </div>
       </section>
 
+      <SectionDivider />
+
       {/* ── WHY CHOOSE US — 6 cards ── */}
       <section ref={whyUs.ref} className="py-16 md:py-20 bg-bg">
         <div className="max-w-7xl mx-auto px-6 lg:px-8">
@@ -757,6 +762,8 @@ export default function LandingPage() {
           </div>
         </div>
       </section>
+
+      <SectionDivider />
 
       {/* ── TESTIMONIALS ── */}
       <TestimonialsSection />
@@ -806,6 +813,7 @@ export default function LandingPage() {
                   className="flex items-center gap-2 px-7 sm:px-8 py-3.5 sm:py-4 rounded-full
                     bg-bg text-muted font-semibold text-sm border border-border
                     hover:bg-card hover:-translate-y-1 hover:scale-[1.02] active:scale-95 will-change-transform
+                    hover:shadow-[0_10px_28px_rgba(14,74,99,0.18)]
                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30
                     transition-all"
                 >
@@ -819,6 +827,20 @@ export default function LandingPage() {
 
       {/* ── FOOTER ── */}
       <footer id="site-footer" className="bg-primary-dark text-white/40" style={{ background: "var(--primary-dark)" }}>
+
+        {/* Curved transition — the light page color (var(--bg)) dips into the
+            dark footer, so the section above curves gently into it instead of
+            ending on a hard seam. Decorative; mirrors the hero wave technique. */}
+        <div className="pointer-events-none -mt-px" aria-hidden="true">
+          <svg
+            className="block w-full h-[36px] sm:h-[52px]"
+            viewBox="0 0 1440 52"
+            preserveAspectRatio="none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path d="M0 0C240 44 480 52 720 38C960 24 1200 6 1440 22L1440 0L0 0Z" fill="var(--bg)" />
+          </svg>
+        </div>
 
         {/* Trust indicators strip */}
         <div className="border-b border-white/[0.07]">
