@@ -8,16 +8,18 @@ import {
   Wrench,
   HardHat,
   Star,
+  Bell,
   LogOut,
   X,
 } from "lucide-react";
 
 const NAV_ITEMS = [
-  { to: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
-  { to: "/bookings",  icon: CalendarDays,    label: "Bookings"  },
-  { to: "/services",  icon: Wrench,          label: "Services"  },
-  { to: "/workers",   icon: HardHat,         label: "Workers"   },
-  { to: "/reviews",   icon: Star,            label: "Reviews"   }, // MODULE 6
+  { to: "/dashboard",     icon: LayoutDashboard, label: "Dashboard"     },
+  { to: "/bookings",      icon: CalendarDays,    label: "Bookings"      },
+  { to: "/services",      icon: Wrench,          label: "Services"      },
+  { to: "/workers",       icon: HardHat,         label: "Workers"       },
+  { to: "/reviews",       icon: Star,            label: "Reviews"       }, // MODULE 6
+  { to: "/notifications", icon: Bell,            label: "Notifications" }, // MODULE 4
 ];
 
 function getInitials(name = "") {

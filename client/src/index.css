@@ -185,12 +185,20 @@
   }
 
   /* ── Input base ── */
+  /* Note: the focus ring/border opacity is expressed via color-mix below rather
+     than `ring-primary/20 border-primary/50` in @apply — Tailwind can't resolve
+     opacity modifiers on the CSS-variable-backed `primary` colour inside @apply.
+     color-mix preserves the exact shade AND stays theme-adaptive (reads --primary). */
   .input-base {
     @apply w-full px-4 py-3 rounded-xl border border-border text-sm
       text-text bg-bg hover:bg-card
       placeholder:text-muted
-      focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50
+      focus:outline-none focus:ring-2
       transition-all duration-200;
+    --tw-ring-color: color-mix(in srgb, var(--primary) 20%, transparent);
+  }
+  .input-base:focus {
+    border-color: color-mix(in srgb, var(--primary) 50%, transparent);
   }
 
   /* ── Page hero banner ── */
@@ -222,6 +230,15 @@
     background-size: 400% 100%;
     animation: shimmer 1.4s ease-in-out infinite;
   }
+
+  /* ── Notification badge "pop" — replays whenever the unread count changes
+     (re-keyed in NotificationBell). Tiny scale bounce; motion-safe only. ── */
+  .badge-pop {
+    animation: badgePop 0.32s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .badge-pop { animation: none; }
+  }
 }
 
 /* ── Keyframes ── */
@@ -239,6 +256,12 @@
 @keyframes shimmer {
   0%   { background-position: 100% 0; }
   100% { background-position: -100% 0; }
+}
+
+@keyframes badgePop {
+  0%   { transform: scale(0.6); }
+  60%  { transform: scale(1.15); }
+  100% { transform: scale(1); }
 }
 
 /* ── Scroll-reveal (IntersectionObserver-driven, see hooks/useReveal.js) ─────

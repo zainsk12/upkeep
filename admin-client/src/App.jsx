@@ -12,6 +12,7 @@ import BookingsPage from "./pages/BookingsPage";
 import ServicesPage from "./pages/ServicesPage";
 import WorkersPage  from "./pages/WorkersPage";   // ← ADDED
 import ReviewsPage  from "./pages/ReviewsPage";   // MODULE 6
+import NotificationsPage from "./pages/NotificationsPage"; // MODULE 4
 
 export default function App() {
   return (
@@ -72,6 +73,11 @@ export default function App() {
           <Route path="/reviews" element={        // MODULE 6
             <AdminRoute>
               <Layout><ReviewsPage /></Layout>
+            </AdminRoute>
+          } />
+          <Route path="/notifications" element={  // MODULE 4
+            <AdminRoute>
+              <Layout><NotificationsPage /></Layout>
             </AdminRoute>
           } />
 

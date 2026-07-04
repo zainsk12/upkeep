@@ -26,6 +26,22 @@ export const createWorker    = (data)      => api.post("/api/admin/workers", dat
 export const updateWorker    = (id, data)  => api.put(`/api/admin/workers/${id}`, data);
 export const toggleWorker    = (id)        => api.patch(`/api/admin/workers/${id}/toggle`);
 
+// ── Notification Management (MODULE 4) ──────────────────────────────────────────
+export const getNotificationAnalytics = ()      => api.get("/api/admin/notifications/analytics");
+export const getNotificationUsers      = (search) =>
+  api.get(`/api/admin/notifications/users${search ? `?search=${encodeURIComponent(search)}` : ""}`);
+export const getAudienceCount          = (audience) =>
+  api.post("/api/admin/notifications/audience-count", { audience });
+export const getNotificationCampaigns  = (params = {}) => {
+  const qs = new URLSearchParams(params).toString();
+  return api.get(`/api/admin/notifications${qs ? `?${qs}` : ""}`);
+};
+export const getNotificationCampaign   = (id)    => api.get(`/api/admin/notifications/${id}`);
+export const createNotificationCampaign = (data) => api.post("/api/admin/notifications", data);
+export const resendNotificationCampaign = (id)   => api.post(`/api/admin/notifications/${id}/resend`);
+export const cancelNotificationCampaign = (id)   => api.patch(`/api/admin/notifications/${id}/cancel`);
+export const deleteNotificationCampaign = (id)   => api.delete(`/api/admin/notifications/${id}`);
+
 // ── Reviews (MODULE 6) ─────────────────────────────────────────────────────────
 export const getAdminReviews       = (params = {}) => {
   const qs = new URLSearchParams(params).toString();

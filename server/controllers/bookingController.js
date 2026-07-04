@@ -6,6 +6,10 @@ const Settings = require("../models/Settings");
 const { validateBookingDateTime } = require("../utils/bookingValidation"); // ← MODULE 2
 const { generateUniqueBookingId } = require("../utils/bookingId");
 const { verifyRecaptcha } = require("../services/recaptchaService");
+const {
+  notifyBookingCreated,
+  notifyBookingConfirmed,
+} = require("../services/notificationService");
 
 // ── POST /api/bookings ─────────────────────────────────────────────────────────
 const createBooking = async (req, res) => {
@@ -70,6 +74,11 @@ const createBooking = async (req, res) => {
     });
 
     res.status(201).json({ message: "Booking created successfully.", booking });
+
+    // Fire-and-forget in-app notification (never blocks/affects the response).
+    notifyBookingCreated(booking).catch((e) =>
+      console.error("[NOTIF] booking_created emit failed:", e.message)
+    );
   } catch (err) {
     console.error("createBooking error:", err.message);
     res.status(500).json({ message: "Server error. Please try again." });
@@ -153,6 +162,11 @@ const confirmBooking = async (req, res) => {
     res.json({ message: "Booking confirmed successfully!", booking });
     T.total_handler_ms = Date.now() - reqStart;
     console.log("[TIMING] confirmBooking", JSON.stringify(T));
+
+    // Fire-and-forget in-app notification (after the response — no added latency).
+    notifyBookingConfirmed(booking).catch((e) =>
+      console.error("[NOTIF] booking_confirmed emit failed:", e.message)
+    );
   } catch (err) {
     console.error("confirmBooking error:", err.message);
     res.status(500).json({ message: "Server error. Please try again." });

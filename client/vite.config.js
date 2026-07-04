@@ -10,6 +10,13 @@ export default defineConfig({
         target: "http://localhost:5000",
         changeOrigin: true,
       },
+      // Socket.IO — proxy the websocket handshake to the backend in dev so the
+      // client connects same-origin (no CORS), mirroring the /api proxy above.
+      "/socket.io": {
+        target: "http://localhost:5000",
+        changeOrigin: true,
+        ws: true,
+      },
     },
   },
 });

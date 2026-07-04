@@ -29,6 +29,10 @@ const {
   verifyResetOtp,
   resetPassword,
 } = require("../controllers/passwordResetController");
+const {
+  notifyWelcome,
+  notifyProfileUpdated,
+} = require("../services/notificationService");
 
 const router = express.Router();
 
@@ -192,6 +196,11 @@ router.post("/register", registerLimiter, async (req, res) => {
         isPhoneVerified: user.isPhoneVerified,
       },
     });
+
+    // Welcome notification — fires once, on first registration only.
+    notifyWelcome(user._id, user.name).catch((e) =>
+      console.error("[NOTIF] welcome emit failed:", e.message)
+    );
   } catch (err) {
     console.error("register error:", err.message);
     res.status(500).json({ message: "Server error. Please try again." });
@@ -309,6 +318,11 @@ router.put("/profile", protect, async (req, res) => {
         isPhoneVerified: updatedUser.isPhoneVerified,
       },
     });
+
+    // Fire-and-forget in-app notification.
+    notifyProfileUpdated(updatedUser._id).catch((e) =>
+      console.error("[NOTIF] profile_updated emit failed:", e.message)
+    );
   } catch (err) {
     console.error("updateProfile error:", err.message);
     res.status(500).json({ message: "Server error. Please try again." });

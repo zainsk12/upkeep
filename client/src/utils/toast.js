@@ -16,6 +16,9 @@ function error(msg, opts)    { return _toast.error(msg,   { duration: DURATION, 
 function info(msg, opts)     { return _toast.info(msg,    { duration: DURATION,      ...opts }); }
 function warning(msg, opts)  { return _toast.warning(msg, { duration: DURATION,      ...opts }); }
 function loading(msg, opts)  { return _toast.loading(msg, { duration: LOAD_DURATION, ...opts }); }
+// Neutral toast (no built-in type icon) — lets callers supply a custom `icon`.
+// Used for live notification toasts so the notification's own type icon shows.
+function message(msg, opts)  { return _toast.message(msg, { duration: DURATION,      ...opts }); }
 
 // Pass-throughs — same API as sonner
 const dismiss = (...args) => _toast.dismiss(...args);
@@ -24,7 +27,7 @@ const promise = (...args) => _toast.promise(...args);
 const toast = Object.assign(
   // Allow bare `toast("msg")` calls as a default info toast
   (msg, opts) => info(msg, opts),
-  { success, error, info, warning, loading, dismiss, promise }
+  { success, error, info, warning, loading, message, dismiss, promise }
 );
 
 export { toast };

@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Toaster } from "sonner";
 import { AuthProvider } from "./context/AuthContext";
+import { NotificationsProvider } from "./context/NotificationsContext";
 import { initializeTheme } from "./utils/theme";
 import ErrorBoundary from "./components/ErrorBoundary";
 import Navbar from "./components/Navbar";
@@ -20,6 +21,7 @@ import ChangePasswordPage from "./pages/ChangePasswordPage";
 import ServicesPage   from "./pages/ServicesPage";
 import MyBookingsPage from "./pages/MyBookingsPage";
 import AllReviewsPage from "./pages/AllReviewsPage";
+import NotificationsPage from "./pages/NotificationsPage";
 
 const NotFound = () => (
   <div className="min-h-screen flex items-center justify-center bg-bg">
@@ -41,6 +43,7 @@ export default function App() {
   return (
     <ErrorBoundary>
       <AuthProvider>
+        <NotificationsProvider>
         <BrowserRouter>
           {/* Resets window scroll to top on every route change (must live
               inside BrowserRouter to read the active location). */}
@@ -101,11 +104,17 @@ export default function App() {
             <Route path="/settings/appearance" element={
               <PrivateRoute><><Navbar /><SettingsPage /></></PrivateRoute>
             } />
+            <Route path="/settings/notifications" element={
+              <PrivateRoute><><Navbar /><SettingsPage /></></PrivateRoute>
+            } />
             <Route path="/settings/getting-started" element={
               <PrivateRoute><><Navbar /><SettingsPage /></></PrivateRoute>
             } />
             <Route path="/my-bookings" element={
               <PrivateRoute><><Navbar /><MyBookingsPage /></></PrivateRoute>
+            } />
+            <Route path="/notifications" element={
+              <PrivateRoute><><Navbar /><NotificationsPage /></></PrivateRoute>
             } />
             <Route path="/book/:serviceId" element={
               <PrivateRoute><><Navbar /><ServicesPage /></></PrivateRoute>
@@ -114,6 +123,7 @@ export default function App() {
             <Route path="*" element={<><Navbar /><NotFound /></>} />
           </Routes>
         </BrowserRouter>
+        </NotificationsProvider>
       </AuthProvider>
     </ErrorBoundary>
   );

@@ -8,6 +8,10 @@ const Settings = require("../models/Settings"); // MODULE 6: threshold persisten
 const isValidId = require("../utils/isValidObjectId");
 const { generateUniqueBookingId } = require("../utils/bookingId");
 const { sendWorkerAssignedEmail } = require("../services/emailService");
+const {
+  notifyTechnicianAssigned,
+  notifyServiceCompleted,
+} = require("../services/notificationService");
 
 // ── GET /api/admin/bookings ────────────────────────────────────────────────────
 const getAllBookings = async (req, res) => {
@@ -39,6 +43,9 @@ const updateBooking = async (req, res) => {
     // email fires exactly once per assignment and never duplicates on no-op saves.
     let shouldSendAssignmentEmail = false;
     let assignedWorkerDoc = null;
+    // Tracks whether THIS request transitioned the booking to "completed", so the
+    // service-completed notification fires exactly once on the real transition.
+    let justCompleted = false;
 
     // ── Set quotation ──────────────────────────────────────────────────────────
     if (quotation !== undefined) {
@@ -152,6 +159,7 @@ const updateBooking = async (req, res) => {
         });
       }
       booking.status = "completed";
+      justCompleted = true;
     }
 
     // ── Cancel booking (soft delete) ───────────────────────────────────────────
@@ -186,6 +194,19 @@ const updateBooking = async (req, res) => {
       ).catch((mailErr) => {
         console.error("Worker assigned but email failed:", mailErr.message);
       });
+    }
+
+    // ── In-app notifications (fire-and-forget) ─────────────────────────────────
+    // booking.userId is populated above; the service resolves its _id.
+    if (shouldSendAssignmentEmail) {
+      notifyTechnicianAssigned(booking, assignedWorkerDoc).catch((e) =>
+        console.error("[NOTIF] technician_assigned emit failed:", e.message)
+      );
+    }
+    if (justCompleted) {
+      notifyServiceCompleted(booking).catch((e) =>
+        console.error("[NOTIF] service_completed emit failed:", e.message)
+      );
     }
   } catch (err) {
     console.error("updateBooking error:", err.message);

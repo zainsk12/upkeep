@@ -77,6 +77,10 @@ router.post("/login", adminLoginLimiter, async (req, res) => {
 // All routes below require auth + admin role
 router.use(auth, requireAdmin);
 
+// ── MODULE 4: Admin Notification Management ─────────────────────────────────
+// Sub-router mounted here so it inherits the auth + requireAdmin guard above.
+router.use("/notifications", require("./adminNotificationRoutes"));
+
 // ── Bookings ───────────────────────────────────────────────────────────────────
 // NOTE: Static sub-routes (/reschedule-settings) MUST be registered before the
 // dynamic /:id route to avoid Express treating "reschedule-settings" as an id.

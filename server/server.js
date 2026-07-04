@@ -48,11 +48,13 @@ if (!process.env.MONGODB_URI) {
 }
 
 const dns      = require("dns");
+const http     = require("http");
 const express  = require("express");
 const mongoose = require("mongoose");
 const cors     = require("cors");
 const helmet   = require("helmet");
 const { initFirebase } = require("./services/firebaseAdmin");
+const { initSocket }   = require("./services/socketService");
 
 // Initialize Firebase Admin SDK at startup (verifies credentials are loadable).
 initFirebase();
@@ -180,6 +182,7 @@ app.use(express.json({ limit: "50kb" }));
 // Routes
 app.use("/api/auth",     require("./routes/auth"));
 app.use("/api/bookings", require("./routes/bookingRoutes"));
+app.use("/api/notifications", require("./routes/notificationRoutes"));
 app.use("/api/reviews",  require("./routes/reviewRoutes"));
 app.use("/api/services", require("./routes/serviceRoutes")); // public
 app.use("/api/admin",    require("./routes/adminRoutes"));   // protected
@@ -219,7 +222,38 @@ mongoose
     } catch (e) {
       console.error("[RESET CLEANUP] failed to schedule:", e.message);
     }
-    app.listen(PORT, () =>
+
+    // Start the scheduled-notification dispatcher (Module 4).
+    try {
+      require("./services/notificationScheduler").startNotificationScheduler();
+    } catch (e) {
+      console.error("[NOTIF SCHED] failed to start:", e.message);
+    }
+
+    // Start the notification retention/cleanup job (Module 5).
+    try {
+      require("./services/notificationCleanup").startNotificationCleanup();
+    } catch (e) {
+      console.error("[NOTIF CLEANUP] failed to start:", e.message);
+    }
+
+    // Optional, opt-in index reconciliation (Module 5). Off by default so prod
+    // never drops indexes without NOTIF_SYNC_INDEXES=true set explicitly.
+    if (require("./config/notifications").syncIndexes) {
+      Promise.all([
+        require("./models/Notification").syncIndexes(),
+        require("./models/NotificationCampaign").syncIndexes(),
+      ])
+        .then(() => console.log("✅ Notification indexes synced (obsolete indexes dropped)."))
+        .catch((e) => console.error("[NOTIF] index sync failed:", e.message));
+    }
+
+    // Wrap Express in an HTTP server so Socket.IO can share the same port.
+    // The REST API is untouched; sockets only add a real-time delta channel.
+    const httpServer = http.createServer(app);
+    initSocket(httpServer, ALLOWED_ORIGINS);
+
+    httpServer.listen(PORT, () =>
       console.log(`🚀 Server running on http://localhost:${PORT}`)
     );
   })

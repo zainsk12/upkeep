@@ -7,6 +7,7 @@ import {
   Menu, X, CalendarDays, Wrench,
   User, LogOut, ChevronDown, Home, Settings,
 } from "lucide-react";
+import NotificationBell from "./notifications/NotificationBell";
 
 function getInitials(name = "") {
   const parts = name.trim().split(/\s+/);
@@ -120,17 +121,19 @@ export default function Navbar() {
   const location  = useLocation();
   const [open, setOpen]             = useState(false); // mobile hamburger menu
   const [avatarOpen, setAvatarOpen] = useState(false); // avatar dropdown
+  const [notifOpen, setNotifOpen]   = useState(false); // notification dropdown
 
-  // Close both overlays on navigation.
-  useEffect(() => { setOpen(false); setAvatarOpen(false); }, [location.pathname]);
+  // Close all overlays on navigation.
+  useEffect(() => { setOpen(false); setAvatarOpen(false); setNotifOpen(false); }, [location.pathname]);
 
-  const handleLogout = () => { logout(); navigate("/"); setOpen(false); setAvatarOpen(false); };
+  const handleLogout = () => { logout(); navigate("/"); setOpen(false); setAvatarOpen(false); setNotifOpen(false); };
   const close = () => setOpen(false);
 
-  // Mutually exclusive overlays — opening one closes the other (only one mobile
+  // Mutually exclusive overlays — opening one closes the others (only one
   // overlay can be open at a time).
-  const toggleMobileMenu      = () => { setOpen((prev) => !prev); setAvatarOpen(false); };
-  const handleAvatarOpenChange = (next) => { setAvatarOpen(next); if (next) setOpen(false); };
+  const toggleMobileMenu       = () => { setOpen((prev) => !prev); setAvatarOpen(false); setNotifOpen(false); };
+  const handleAvatarOpenChange = (next) => { setAvatarOpen(next); if (next) { setOpen(false); setNotifOpen(false); } };
+  const handleNotifOpenChange  = (next) => { setNotifOpen(next);  if (next) { setOpen(false); setAvatarOpen(false); } };
 
   const isActive = (path) =>
     path === "/" ? location.pathname === "/" : location.pathname.startsWith(path);
@@ -250,16 +253,21 @@ export default function Navbar() {
                   <CalendarDays size={14} strokeWidth={2.5} />
                   My Bookings
                 </Link>
-                <div className="ml-2">
+                <div className="ml-1.5">
+                  <NotificationBell open={notifOpen} onOpenChange={handleNotifOpenChange} />
+                </div>
+                <div className="ml-1.5">
                   <AvatarDropdown user={user} onLogout={handleLogout} open={avatarOpen} onOpenChange={handleAvatarOpenChange} />
                 </div>
               </>
             )}
           </div>
 
-            {/* Mobile avatar — far right (logged in) */}
+            {/* Mobile bell + avatar — far right (logged in). Bell sits to the
+                LEFT of the avatar, matching the desktop layout. */}
             {isAuthenticated && (
-              <div className="md:hidden">
+              <div className="md:hidden flex items-center gap-0.5">
+                <NotificationBell open={notifOpen} onOpenChange={handleNotifOpenChange} />
                 <AvatarDropdown user={user} onLogout={handleLogout} open={avatarOpen} onOpenChange={handleAvatarOpenChange} />
               </div>
             )}
@@ -300,6 +308,10 @@ export default function Navbar() {
               <Link to="/my-bookings" className={mobileNavCls("/my-bookings")} onClick={close}>
                 <CalendarDays size={16} strokeWidth={2} /> My Bookings
               </Link>
+              {/* Notifications intentionally omitted here — the always-visible bell
+                  (top-right, with unread badge + dropdown + "See All") is the single
+                  entry point on mobile, matching modern production apps and avoiding
+                  a duplicate, badge-less access point. */}
             </>
           )}
         </div>

@@ -30,6 +30,7 @@ const {
   sendPasswordResetOtpEmail,
   sendPasswordChangedEmail,
 } = require("../services/emailService");
+const { notifyPasswordChanged } = require("../services/notificationService");
 const {
   MAX_OTP_ATTEMPTS,
   evaluateResetThrottle,
@@ -364,6 +365,11 @@ async function resetPassword(req, res) {
     const maskedIdentifier = user.email ? maskEmail(user.email) : maskPhone(user.phone);
     sendPasswordChangedEmail(user, { maskedIdentifier, when: new Date() }).catch((err) =>
       console.error("[RESET] Password-changed notice failed:", err.message)
+    );
+
+    // In-app notification (fire-and-forget) — mirrors the email notice above.
+    notifyPasswordChanged(user._id).catch((e) =>
+      console.error("[NOTIF] password_changed emit failed:", e.message)
     );
 
     res.json({ message: "Your password has been updated successfully. You can now log in." });

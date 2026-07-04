@@ -2,11 +2,19 @@
 
 import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { Sun, Moon, User, Palette, BookOpen, ChevronRight, ChevronDown, KeyRound } from "lucide-react";
+import { Sun, Moon, User, Palette, BookOpen, ChevronRight, ChevronDown, KeyRound, Bell } from "lucide-react";
 import { getTheme, setTheme } from "../utils/theme";
+import NotificationPreferencesPanel from "../components/notifications/NotificationPreferencesPanel";
 
 /* ─── Settings nav items ─────────────────────────────────────────────────── */
 const SETTINGS_ITEMS = [
+  {
+    id: "notifications",
+    icon: Bell,
+    label: "Notifications",
+    description: "Choose what you're notified about, sounds and toasts",
+    to: "/settings/notifications",
+  },
   {
     id: "appearance",
     icon: Palette,
@@ -251,13 +259,15 @@ export default function SettingsPage() {
   const isAppearance     = pathname === "/settings/appearance";
   const isGettingStarted = pathname === "/settings/getting-started";
   const isAccount        = pathname === "/settings/account";
-  const isRoot           = !isAppearance && !isGettingStarted && !isAccount;
+  const isNotifications  = pathname === "/settings/notifications";
+  const isRoot           = !isAppearance && !isGettingStarted && !isAccount && !isNotifications;
 
   let heading    = "Settings";
   let subheading = "Manage your app preferences and find help";
-  if (isAppearance)     { heading = "Appearance";   subheading = "Switch between light and dark theme"; }
-  if (isGettingStarted) { heading = "Help & FAQs";  subheading = "Everything you need to know about using UpKeep"; }
-  if (isAccount)        { heading = "Account";       subheading = "Update your profile or change your password"; }
+  if (isAppearance)     { heading = "Appearance";    subheading = "Switch between light and dark theme"; }
+  if (isGettingStarted) { heading = "Help & FAQs";   subheading = "Everything you need to know about using UpKeep"; }
+  if (isAccount)        { heading = "Account";        subheading = "Update your profile or change your password"; }
+  if (isNotifications)  { heading = "Notifications";  subheading = "Control what you're notified about and how"; }
 
   // Account menu rows — both delegate to existing screens/flows (no new logic).
   const accountItems = [
@@ -346,6 +356,9 @@ export default function SettingsPage() {
 
         {/* ── Account management panel ── */}
         {isAccount && <AccountPanel items={accountItems} />}
+
+        {/* ── Notification preferences panel ── */}
+        {isNotifications && <NotificationPreferencesPanel />}
 
         {/* ── Appearance panel ── */}
         {isAppearance && <AppearancePanel />}
