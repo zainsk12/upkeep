@@ -9,6 +9,8 @@ const {
   getMyBookings,
   confirmBooking,
   rejectBooking,
+  requestQuoteRevision,
+  closeBookingRequest,
   rescheduleBooking,
 } = require("../controllers/bookingController");
 
@@ -18,8 +20,14 @@ router.get("/my", auth, getMyBookings);
 // Accept quotation → confirm booking (reCAPTCHA v3 protected, no OTP)
 router.post("/:id/confirm", auth, confirmBooking);
 
-// Reject quotation
+// Reject quotation (requires { reason, comment? } — see REJECTION_REASONS)
 router.post("/:id/reject", auth, rejectBooking);
+
+// After rejection: request a revised quotation from the team
+router.post("/:id/request-revision", auth, requestQuoteRevision);
+
+// After rejection: close the request permanently (terminal)
+router.post("/:id/close", auth, closeBookingRequest);
 
 // Reschedule booking (change date / time)
 router.patch("/:id/reschedule", auth, rescheduleBooking);

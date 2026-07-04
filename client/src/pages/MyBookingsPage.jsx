@@ -6,8 +6,9 @@ import {
   CalendarDays, Clock, MapPin, FileText,
   Hammer, RefreshCw, PackageOpen, ArrowRight,
   Phone, AlertCircle, Star, X, MessageSquare, CheckCircle2,
-  IndianRupee, UserCheck, ThumbsUp, ThumbsDown, Info,
-  ShieldCheck, CalendarClock,
+  IndianRupee, UserCheck, ThumbsDown, Info,
+  ShieldCheck, CalendarClock, XCircle, FileEdit, Archive,
+  History, ChevronDown,
   Zap, Droplets, Sparkles, Wind, Paintbrush2, Bug, Wrench,
 } from "lucide-react";
 import { toast } from "../utils/toast";
@@ -15,6 +16,8 @@ import {
   getMyBookings,
   confirmBooking,
   rejectBooking,
+  requestQuoteRevision,
+  closeBookingRequest,
 } from "../services/bookingApi";
 import { executeRecaptcha } from "../services/recaptcha";
 import RescheduleModal from "../components/RescheduleModal";
@@ -76,25 +79,59 @@ const STATUS_CONFIG = {
     accent: "text-emerald-600",
     info: "Service completed. We hope you're happy with the work!",
   },
+  quote_rejected: {
+    label: "Quote Rejected",
+    classes: "bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-900/20 dark:text-rose-400 dark:border-rose-800/40",
+    dot: "bg-rose-500",
+    accent: "text-rose-600",
+    info: "You rejected this quotation. Request a revised quote or close the request below.",
+  },
+  revision_requested: {
+    label: "Revision Requested",
+    classes: "bg-sky-50 text-sky-700 border border-sky-200 dark:bg-sky-900/20 dark:text-sky-400 dark:border-sky-800/40",
+    dot: "bg-sky-500",
+    accent: "text-sky-600",
+    info: "We're preparing a revised quotation for you. You'll be notified when it's ready.",
+  },
   cancelled: {
     label: "Cancelled",
     classes: "bg-red-50 text-red-600 border border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800/40",
     dot: "bg-red-400",
     accent: "text-red-500",
-    info: "You rejected the price quote. This booking has been cancelled.",
+    info: "This booking has been cancelled.",
+  },
+  closed: {
+    label: "Closed",
+    classes: "bg-slate-100 text-slate-600 border border-slate-200 dark:bg-slate-800/40 dark:text-slate-400 dark:border-slate-700/50",
+    dot: "bg-slate-400",
+    accent: "text-slate-500",
+    info: "You closed this request. You can book a new service anytime.",
   },
 };
 
 /* Statuses that belong to the "Active Bookings" primary area */
-const ACTIVE_STATUSES = ["awaiting_user_confirmation", "pending", "confirmed"];
+const ACTIVE_STATUSES = [
+  "awaiting_user_confirmation", "quote_rejected", "revision_requested", "pending", "confirmed",
+];
 
 /* Statuses that allow rescheduling (must mirror bookingController.js) */
 const RESCHEDULABLE_STATUSES = ["pending", "awaiting_user_confirmation", "confirmed"];
 
-/* The two collapsible archive sections */
+/* The collapsible archive sections */
 const ARCHIVE_SECTIONS = [
   { key: "completed", label: "Completed", dot: "bg-emerald-500", accent: "text-emerald-600", emptyMessage: "No completed bookings yet" },
   { key: "cancelled", label: "Cancelled", dot: "bg-red-400",     accent: "text-red-500",     emptyMessage: "No cancelled bookings" },
+  { key: "closed",    label: "Closed",    dot: "bg-slate-400",   accent: "text-slate-500",   emptyMessage: "No closed requests" },
+];
+
+/* Rejection reasons — must mirror server/constants/quoteWorkflow.js */
+const REJECTION_REASONS = [
+  "Too expensive",
+  "Found another provider",
+  "Scope of work is incorrect",
+  "Service no longer required",
+  "Need a revised quotation",
+  "Other",
 ];
 
 
@@ -302,6 +339,376 @@ function QuotationDisclaimer() {
   );
 }
 
+/* ─── Reject quote modal (two-step: confirm → reason) ── */
+function RejectQuoteModal({ booking, onClose, onSubmit, loading }) {
+  const [step,    setStep]    = useState(1);
+  const [reason,  setReason]  = useState("");
+  const [comment, setComment] = useState("");
+
+  const needsComment = reason === "Other";
+  // The submit button is disabled until this holds, so no further validation
+  // is needed at submit time (the server re-validates regardless).
+  const canSubmit    = !!reason && (!needsComment || comment.trim().length > 0);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+      style={{ background: "rgba(11,29,58,0.55)", backdropFilter: "blur(6px)" }}
+      onClick={(e) => { if (e.target === e.currentTarget && !loading) onClose(); }}
+    >
+      <div
+        className="bg-card w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col"
+        style={{ boxShadow: "0 24px 64px rgba(8,53,74,0.18), 0 4px 16px rgba(0,0,0,0.08)" }}
+      >
+        {step === 1 ? (
+          /* ── Step 1: confirmation ── */
+          <div className="flex flex-col items-center pt-8 pb-6 px-6">
+            <div className="w-14 h-14 rounded-full bg-rose-50 dark:bg-rose-900/20 border-2 border-rose-200 dark:border-rose-800/40 flex items-center justify-center mb-4">
+              <ThumbsDown size={24} className="text-rose-500" />
+            </div>
+            <h2 className="text-text font-bold text-lg text-center leading-tight">
+              Reject Quotation?
+            </h2>
+            <p className="text-muted text-sm text-center mt-2 leading-relaxed">
+              Are you sure you want to reject this quotation? This quotation will
+              no longer be valid unless a revised quotation is requested.
+            </p>
+            <div className="flex gap-3 w-full mt-6">
+              <button
+                onClick={onClose}
+                className="flex-1 px-4 py-3 rounded-xl border border-border text-muted hover:bg-bg text-sm font-semibold transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => setStep(2)}
+                className="flex-1 flex items-center justify-center gap-1.5 px-4 py-3 rounded-xl
+                  bg-rose-600 hover:bg-rose-700 text-white text-sm font-bold
+                  transition-all shadow-md shadow-rose-600/25"
+              >
+                <ThumbsDown size={14} />
+                Reject Quote
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* ── Step 2: rejection reason ── */
+          <>
+            <div className="bg-primary dark:bg-primary-dark px-5 sm:px-6 py-4 sm:py-5 flex items-center justify-between flex-shrink-0">
+              <div>
+                <p className="text-white/60 text-xs font-medium uppercase tracking-widest">Reject quotation</p>
+                <h2 className="text-white font-bold text-base sm:text-lg leading-tight">{booking.service}</h2>
+              </div>
+              <button
+                onClick={onClose}
+                disabled={loading}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors disabled:opacity-50"
+                aria-label="Close"
+              >
+                <X size={16} className="text-white" />
+              </button>
+            </div>
+            <div className="p-5 sm:p-6 flex flex-col gap-4 overflow-y-auto">
+              <label className="text-sm font-semibold text-text flex items-center gap-1.5 -mb-1">
+                <MessageSquare size={13} className="text-primary" />
+                Why are you rejecting this quote? <span className="text-red-400">*</span>
+              </label>
+              <div className="flex flex-col gap-2">
+                {REJECTION_REASONS.map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setReason(r)}
+                    className={`flex items-center gap-3 px-4 py-3 rounded-xl border text-sm text-left transition-all
+                      ${reason === r
+                        ? "border-rose-400 bg-rose-50 dark:bg-rose-900/20 text-rose-700 dark:text-rose-300 font-semibold"
+                        : "border-border text-text hover:border-rose-200 hover:bg-bg"
+                      }`}
+                  >
+                    <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0
+                      ${reason === r ? "border-rose-500" : "border-border"}`}
+                    >
+                      {reason === r && <span className="w-2 h-2 rounded-full bg-rose-500" />}
+                    </span>
+                    {r}
+                  </button>
+                ))}
+              </div>
+              {needsComment && (
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-semibold text-text">
+                    Tell us more <span className="text-red-400">*</span>
+                  </label>
+                  <textarea
+                    value={comment}
+                    onChange={(e) => setComment(e.target.value)}
+                    rows={3}
+                    maxLength={500}
+                    placeholder="Please describe your reason…"
+                    className="w-full px-4 py-3 rounded-xl border border-border text-sm resize-none
+                      focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-400/60
+                      transition-all bg-bg hover:bg-card placeholder:text-muted text-text"
+                    autoFocus
+                  />
+                </div>
+              )}
+              <div className="flex gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setStep(1)}
+                  disabled={loading}
+                  className="flex-1 px-4 py-3 rounded-xl border border-border text-muted hover:bg-bg text-sm font-semibold transition-all disabled:opacity-50"
+                >
+                  Back
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onSubmit(booking, reason, comment.trim())}
+                  disabled={loading || !canSubmit}
+                  className="flex-[2] flex items-center justify-center gap-2 px-4 py-3 rounded-xl
+                    bg-rose-600 hover:bg-rose-700 text-white text-sm font-bold
+                    transition-all shadow-md shadow-rose-600/25
+                    disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {loading
+                    ? <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    : <><ThumbsDown size={14} /> Reject Quote</>
+                  }
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Close request confirmation modal ── */
+function CloseRequestModal({ booking, onClose, onConfirm, loading }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+      style={{ background: "rgba(11,29,58,0.55)", backdropFilter: "blur(6px)" }}
+      onClick={(e) => { if (e.target === e.currentTarget && !loading) onClose(); }}
+    >
+      <div
+        className="bg-card w-full sm:max-w-sm rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden"
+        style={{ boxShadow: "0 24px 64px rgba(8,53,74,0.18), 0 4px 16px rgba(0,0,0,0.08)" }}
+      >
+        <div className="flex flex-col items-center pt-8 pb-6 px-6">
+          <div className="w-14 h-14 rounded-full bg-slate-100 dark:bg-slate-800/60 border-2 border-slate-200 dark:border-slate-700 flex items-center justify-center mb-4">
+            <Archive size={24} className="text-slate-500" />
+          </div>
+          <h2 className="text-text font-bold text-lg text-center leading-tight">
+            Close Request?
+          </h2>
+          <p className="text-muted text-sm text-center mt-2 leading-relaxed">
+            This will permanently close your{" "}
+            <span className="font-semibold text-text">{booking.service}</span>{" "}
+            request. You won't receive any further quotations for it, and this
+            cannot be undone.
+          </p>
+          <div className="flex gap-3 w-full mt-6">
+            <button
+              onClick={onClose}
+              disabled={loading}
+              className="flex-1 px-4 py-3 rounded-xl border border-border text-muted hover:bg-bg text-sm font-semibold transition-all disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => onConfirm(booking)}
+              disabled={loading}
+              className="flex-1 flex items-center justify-center gap-1.5 px-4 py-3 rounded-xl
+                bg-slate-700 hover:bg-slate-800 dark:bg-slate-600 dark:hover:bg-slate-500
+                text-white text-sm font-bold transition-all shadow-md shadow-slate-700/25
+                disabled:opacity-60"
+            >
+              {loading
+                ? <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                : <><Archive size={14} /> Close Request</>
+              }
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Post-rejection next steps (no dead ends) ── */
+function RejectedNextSteps({ booking, onRequestRevision, onCloseRequest, loading }) {
+  const busy = loading === booking._id;
+  return (
+    <div className="mx-4 mb-4 rounded-2xl border border-rose-200 dark:border-rose-800/40 bg-rose-50 dark:bg-rose-900/20 overflow-hidden">
+      <div className="bg-rose-600 px-4 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <XCircle size={14} className="text-white" />
+          <span className="text-white text-sm font-bold">Quote Rejected</span>
+        </div>
+        {booking.rejection?.rejectedAt && (
+          <span className="text-rose-100 text-xs font-medium">
+            {new Date(booking.rejection.rejectedAt).toLocaleDateString("en-IN", {
+              day: "numeric", month: "short", year: "numeric",
+            })}
+          </span>
+        )}
+      </div>
+      <div className="p-4 flex flex-col gap-4">
+        {booking.rejection?.reason && (
+          <div className="rounded-xl bg-card border border-rose-100 dark:border-rose-800/30 px-3.5 py-3">
+            <p className="text-xs text-rose-500 dark:text-rose-400 font-semibold uppercase tracking-wider mb-1">
+              Your reason
+            </p>
+            <p className="text-sm text-text font-medium">{booking.rejection.reason}</p>
+            {booking.rejection.comment && (
+              <p className="text-xs text-muted italic mt-1 leading-relaxed">
+                “{booking.rejection.comment}”
+              </p>
+            )}
+          </div>
+        )}
+
+        <p className="text-xs text-muted leading-relaxed">
+          What would you like to do next? You can ask our team for an updated
+          price estimate, or close this request permanently.
+        </p>
+
+        <div className="flex flex-col gap-2.5">
+          <button
+            onClick={() => onRequestRevision(booking)}
+            disabled={busy}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl
+              bg-primary hover:bg-primary-hover text-white text-sm font-bold
+              transition-all shadow-md shadow-primary/25 hover:-translate-y-0.5
+              disabled:opacity-60 disabled:translate-y-0"
+          >
+            {busy
+              ? <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              : <><FileEdit size={14} /> Request Revised Quote</>
+            }
+          </button>
+          <p className="text-xs text-muted text-center -mt-0.5">
+            Our team will review your feedback and send an updated quotation.
+          </p>
+          <button
+            onClick={() => onCloseRequest(booking)}
+            disabled={busy}
+            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl
+              border border-border text-muted text-sm font-semibold
+              hover:border-slate-400 hover:text-text hover:bg-bg
+              transition-all disabled:opacity-50"
+          >
+            <Archive size={13} />
+            Close Request
+          </button>
+          <p className="text-xs text-muted text-center -mt-0.5">
+            Permanently ends this request — no further quotations will be sent.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Request timeline / activity history ── */
+// Events that represent a negative outcome get a red ✗ marker.
+const TIMELINE_NEGATIVE = new Set(["quote_rejected", "cancelled", "closed"]);
+
+// Legacy bookings pre-date the server-side history log — derive a best-effort
+// timeline from the fields we do have so the section never renders empty.
+function deriveLegacyTimeline(b) {
+  const events = [{ event: "requested", label: "Service Requested", at: b.createdAt }];
+  if (b.quotation?.total > 0 || b.price != null)
+    events.push({ event: "quote_sent", label: "Quote Sent", at: null });
+  if (b.status === "confirmed" || b.status === "completed")
+    events.push({ event: "confirmed", label: "Quote Accepted — Booking Confirmed", at: null });
+  if (b.assignedWorker?.name || b.worker)
+    events.push({ event: "worker_assigned", label: "Worker Assigned", at: null });
+  if (b.status === "completed")
+    events.push({ event: "completed", label: "Service Completed", at: b.updatedAt });
+  if (b.status === "cancelled")
+    events.push({ event: "cancelled", label: "Booking Cancelled", at: b.updatedAt });
+  return events;
+}
+
+function BookingTimeline({ booking }) {
+  const [open, setOpen] = useState(false);
+  const events = booking.history?.length ? booking.history : deriveLegacyTimeline(booking);
+  if (!events.length) return null;
+
+  return (
+    <div className="pt-3 mt-1 border-t border-border">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="w-full flex items-center gap-2 text-xs font-semibold text-muted
+          hover:text-primary transition-colors"
+      >
+        <History size={13} className="flex-shrink-0" />
+        Request Timeline
+        <span className="flex-1" />
+        <ChevronDown
+          size={14}
+          className={`transition-transform duration-300 ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+
+      <div
+        className="grid transition-[grid-template-rows] duration-300 ease-in-out"
+        style={{ gridTemplateRows: open ? "1fr" : "0fr" }}
+      >
+        <div className="min-h-0 overflow-hidden">
+          <ol className="mt-3 ml-1.5 pb-1">
+            {events.map((ev, i) => {
+              const negative = TIMELINE_NEGATIVE.has(ev.event);
+              const isLast   = i === events.length - 1;
+              return (
+                <li key={`${ev.event}-${i}`} className="relative pl-6 pb-4 last:pb-0">
+                  {/* connector line */}
+                  {!isLast && (
+                    <span className="absolute left-[7px] top-5 bottom-0 w-px bg-border" />
+                  )}
+                  {/* marker */}
+                  <span
+                    className={`absolute left-0 top-0.5 w-[15px] h-[15px] rounded-full flex items-center justify-center
+                      ${negative
+                        ? "bg-rose-100 dark:bg-rose-900/40"
+                        : "bg-emerald-100 dark:bg-emerald-900/40"}`}
+                  >
+                    {negative
+                      ? <X size={9} strokeWidth={3} className="text-rose-500" />
+                      : <CheckCircle2 size={11} className="text-emerald-500" />
+                    }
+                  </span>
+                  <p className={`text-xs font-semibold leading-tight
+                    ${isLast ? "text-text" : "text-muted"}`}>
+                    {ev.label || ev.event}
+                  </p>
+                  {ev.at && (
+                    <p className="text-[11px] text-muted mt-0.5">
+                      {new Date(ev.at).toLocaleString("en-IN", {
+                        day: "numeric", month: "short", year: "numeric",
+                        hour: "2-digit", minute: "2-digit",
+                      })}
+                    </p>
+                  )}
+                  {ev.meta?.reason && (
+                    <p className="text-[11px] text-muted italic mt-0.5">
+                      Reason: {ev.meta.reason}
+                    </p>
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ─── Quote banner ── */
 function QuoteBanner({ booking, onAcceptClick, onReject, loading }) {
   const hasQuotation = booking.quotation && booking.quotation.labour > 0;
@@ -349,7 +756,7 @@ function QuoteBanner({ booking, onAcceptClick, onReject, loading }) {
         {/* CTA row */}
         <div className="flex gap-3">
           <button
-            onClick={() => onReject(booking._id)}
+            onClick={() => onReject(booking)}
             disabled={loading === booking._id}
             className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl
               border border-red-200 dark:border-red-800/40 text-red-600 dark:text-red-400 text-sm font-semibold
@@ -413,11 +820,15 @@ function WorkerStrip({ booking }) {
 }
 
 /* ─── Booking card ── */
-function BookingCard({ booking, isReviewed, onLeaveReview, onAcceptClick, onReject, onReschedule, actionLoading }) {
+function BookingCard({
+  booking, isReviewed, onLeaveReview, onAcceptClick, onReject,
+  onRequestRevision, onCloseRequest, onReschedule, actionLoading, workflowLoading,
+}) {
   const svc        = getServiceMeta(booking.service);
   const Icon       = svc.icon;
   const isCompleted = booking.status === "completed";
   const isAwaiting  = booking.status === "awaiting_user_confirmation";
+  const isRejected  = booking.status === "quote_rejected";
   const canReschedule = RESCHEDULABLE_STATUSES.includes(booking.status);
   const statusCfg   = STATUS_CONFIG[booking.status] || STATUS_CONFIG.pending;
 
@@ -460,6 +871,18 @@ function BookingCard({ booking, isReviewed, onLeaveReview, onAcceptClick, onReje
             onAcceptClick={onAcceptClick}
             onReject={onReject}
             loading={actionLoading}
+          />
+        </div>
+      )}
+
+      {/* Post-rejection next steps — request a revision or close the request */}
+      {isRejected && (
+        <div className="pt-4">
+          <RejectedNextSteps
+            booking={booking}
+            onRequestRevision={onRequestRevision}
+            onCloseRequest={onCloseRequest}
+            loading={workflowLoading}
           />
         </div>
       )}
@@ -554,6 +977,9 @@ function BookingCard({ booking, isReviewed, onLeaveReview, onAcceptClick, onReje
           </div>
         )}
 
+        {/* Activity timeline */}
+        <BookingTimeline booking={booking} />
+
         {/* Reschedule button (active bookings only) */}
         {canReschedule && (
           <div className="pt-3 mt-1 border-t border-border">
@@ -625,13 +1051,20 @@ export default function MyBookingsPage() {
   const [loading,       setLoading]       = useState(true);
   const [error,         setError]         = useState(null);
   const [activeReview,  setActiveReview]  = useState(null);
-  const [actionLoading, setActionLoading] = useState(null);
+  // bookingId whose "Request Revised Quote" call is in flight
+  const [revisionLoading, setRevisionLoading] = useState(null);
 
   // Booking confirmation state
   const [confirming, setConfirming] = useState(null); // bookingId being confirmed
 
   // Reschedule modal state
   const [rescheduleModal, setRescheduleModal] = useState(null); // booking object
+
+  // Quote rejection workflow state
+  const [rejectModal,      setRejectModal]      = useState(null);  // booking object
+  const [rejectSubmitting, setRejectSubmitting] = useState(false);
+  const [closeModal,       setCloseModal]       = useState(null);  // booking object
+  const [closeSubmitting,  setCloseSubmitting]  = useState(false);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -700,16 +1133,53 @@ export default function MyBookingsPage() {
     );
   };
 
-  const handleReject = async (id) => {
-    setActionLoading(id);
+  // Step 1+2 handled inside RejectQuoteModal; this fires on final submission.
+  const handleRejectSubmit = async (booking, reason, comment) => {
+    setRejectSubmitting(true);
     try {
-      const res = await rejectBooking(id);
-      setBookings((prev) => prev.map((b) => b._id === id ? res.data.booking : b));
-      toast.success("Booking cancelled.");
+      const res = await rejectBooking(booking._id, { reason, comment });
+      setBookings((prev) =>
+        prev.map((b) => (b._id === booking._id ? res.data.booking : b))
+      );
+      setRejectModal(null);
+      toast.success("Quotation rejected.");
     } catch (err) {
-      toast.error(err?.response?.data?.message || "Failed to cancel booking.");
+      toast.error(err?.response?.data?.message || "Failed to reject the quotation.");
     } finally {
-      setActionLoading(null);
+      setRejectSubmitting(false);
+    }
+  };
+
+  // Post-rejection: ask the team for a revised quotation.
+  const handleRequestRevision = async (booking) => {
+    setRevisionLoading(booking._id);
+    try {
+      const res = await requestQuoteRevision(booking._id);
+      setBookings((prev) =>
+        prev.map((b) => (b._id === booking._id ? res.data.booking : b))
+      );
+      toast.success("Revised quote requested — we'll notify you when it's ready. ✅");
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Failed to request a revised quote.");
+    } finally {
+      setRevisionLoading(null);
+    }
+  };
+
+  // Post-rejection: permanently close the request (after confirmation modal).
+  const handleCloseRequest = async (booking) => {
+    setCloseSubmitting(true);
+    try {
+      const res = await closeBookingRequest(booking._id);
+      setBookings((prev) =>
+        prev.map((b) => (b._id === booking._id ? res.data.booking : b))
+      );
+      setCloseModal(null);
+      toast.success("Request closed.");
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Failed to close the request.");
+    } finally {
+      setCloseSubmitting(false);
     }
   };
 
@@ -827,9 +1297,12 @@ export default function MyBookingsPage() {
                       isReviewed={reviewedIds.has(b._id)}
                       onLeaveReview={setActiveReview}
                       onAcceptClick={handleAcceptClick}
-                      onReject={handleReject}
+                      onReject={setRejectModal}
+                      onRequestRevision={handleRequestRevision}
+                      onCloseRequest={setCloseModal}
                       onReschedule={setRescheduleModal}
                       actionLoading={confirming}
+                      workflowLoading={revisionLoading}
                     />
                   ))}
                 </div>
@@ -864,9 +1337,12 @@ export default function MyBookingsPage() {
                             isReviewed={reviewedIds.has(b._id)}
                             onLeaveReview={setActiveReview}
                             onAcceptClick={handleAcceptClick}
-                            onReject={handleReject}
+                            onReject={setRejectModal}
+                            onRequestRevision={handleRequestRevision}
+                            onCloseRequest={setCloseModal}
                             onReschedule={setRescheduleModal}
                             actionLoading={confirming}
+                            workflowLoading={revisionLoading}
                           />
                         ))}
                       </div>
@@ -895,6 +1371,26 @@ export default function MyBookingsPage() {
           booking={rescheduleModal}
           onClose={() => setRescheduleModal(null)}
           onSuccess={handleRescheduleSuccess}
+        />
+      )}
+
+      {/* Reject quote modal (confirmation + reason) */}
+      {rejectModal && (
+        <RejectQuoteModal
+          booking={rejectModal}
+          onClose={() => setRejectModal(null)}
+          onSubmit={handleRejectSubmit}
+          loading={rejectSubmitting}
+        />
+      )}
+
+      {/* Close request confirmation modal */}
+      {closeModal && (
+        <CloseRequestModal
+          booking={closeModal}
+          onClose={() => setCloseModal(null)}
+          onConfirm={handleCloseRequest}
+          loading={closeSubmitting}
         />
       )}
     </div>

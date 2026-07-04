@@ -10,11 +10,14 @@ import { getAllBookings, getServices } from "../services/api";
 
 /* ─── Status config ── */
 const STATUS_LABELS = {
-  pending:                    { label: "Pending",       color: "text-amber-700",   bg: "bg-amber-50",   border: "border-amber-200"  },
-  awaiting_user_confirmation: { label: "Awaiting User", color: "text-violet-700",  bg: "bg-violet-50",  border: "border-violet-200" },
-  confirmed:                  { label: "Confirmed",     color: "text-blue-700",    bg: "bg-blue-50",    border: "border-blue-200"   },
-  completed:                  { label: "Completed",     color: "text-emerald-700", bg: "bg-emerald-50", border: "border-emerald-200"},
-  cancelled:                  { label: "Cancelled",     color: "text-red-700",     bg: "bg-red-50",     border: "border-red-200"    },
+  pending:                    { label: "Pending",            color: "text-amber-700",   bg: "bg-amber-50",   border: "border-amber-200"  },
+  awaiting_user_confirmation: { label: "Awaiting User",      color: "text-violet-700",  bg: "bg-violet-50",  border: "border-violet-200" },
+  quote_rejected:             { label: "Quote Rejected",     color: "text-rose-700",    bg: "bg-rose-50",    border: "border-rose-200"   },
+  revision_requested:         { label: "Revision Requested", color: "text-sky-700",     bg: "bg-sky-50",     border: "border-sky-200"    },
+  confirmed:                  { label: "Confirmed",          color: "text-blue-700",    bg: "bg-blue-50",    border: "border-blue-200"   },
+  completed:                  { label: "Completed",          color: "text-emerald-700", bg: "bg-emerald-50", border: "border-emerald-200"},
+  cancelled:                  { label: "Cancelled",          color: "text-red-700",     bg: "bg-red-50",     border: "border-red-200"    },
+  closed:                     { label: "Closed",             color: "text-slate-600",   bg: "bg-slate-100",  border: "border-slate-200"  },
 };
 
 /* Stat card */

@@ -1,6 +1,7 @@
 // server/models/Booking.js
 
 const mongoose = require("mongoose");
+const { REJECTION_REASONS } = require("../constants/quoteWorkflow");
 
 /* ── Quotation breakdown sub-schema ───────────────────────────────────────────
    All line-item fields default to 0 so partial quotations are valid.
@@ -17,6 +18,62 @@ const quotationSchema = new mongoose.Schema(
     tax:             { type: Number, default: 0, min: 0 },
     notes:           { type: String, default: "", trim: true },
     total:           { type: Number, default: 0, min: 0 },
+  },
+  { _id: false }
+);
+
+/* ── Quote rejection sub-schema ───────────────────────────────────────────────
+   Captured when the customer rejects a quotation. `reason` is one of the
+   predefined REJECTION_REASONS; `comment` carries free text (required when
+   reason is "Other"). Default null on the parent — fully backward compatible
+   with existing bookings.
+────────────────────────────────────────────────────────────────────────────── */
+const rejectionSchema = new mongoose.Schema(
+  {
+    reason:     { type: String, enum: REJECTION_REASONS, required: true },
+    comment:    { type: String, default: "", trim: true },
+    rejectedAt: { type: Date, default: Date.now },
+    rejectedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+  },
+  { _id: false }
+);
+
+/* ── Quotation history entry ──────────────────────────────────────────────────
+   Snapshot of a quotation at the moment it was superseded (rejected → revised).
+   Append-only: every revision extends this array; the live quotation always
+   lives in `quotation`. `revision` is 1-based (1 = the original quote).
+────────────────────────────────────────────────────────────────────────────── */
+const quotationHistorySchema = new mongoose.Schema(
+  {
+    revision:         { type: Number, required: true },
+    labour:           { type: Number, default: 0 },
+    materials:        { type: Number, default: 0 },
+    travel:           { type: Number, default: 0 },
+    inspection:       { type: Number, default: 0 },
+    convenience_fee:  { type: Number, default: 0 },
+    tax:              { type: Number, default: 0 },
+    notes:            { type: String, default: "", trim: true },
+    total:            { type: Number, default: 0 },
+    sentAt:           { type: Date, default: null },
+    rejectedAt:       { type: Date, default: null },
+    rejectionReason:  { type: String, default: "", trim: true },
+    rejectionComment: { type: String, default: "", trim: true },
+  },
+  { _id: false }
+);
+
+/* ── Activity timeline entry ──────────────────────────────────────────────────
+   Append-only event log rendered as the request timeline on both dashboards.
+   `label` is stored alongside `event` so entries render without a lookup.
+   `by` records the actor: "customer" | "admin" | "system".
+────────────────────────────────────────────────────────────────────────────── */
+const historyEventSchema = new mongoose.Schema(
+  {
+    event: { type: String, required: true, trim: true },
+    label: { type: String, default: "", trim: true },
+    by:    { type: String, enum: ["customer", "admin", "system"], default: "system" },
+    at:    { type: Date, default: Date.now },
+    meta:  { type: mongoose.Schema.Types.Mixed, default: {} },
   },
   { _id: false }
 );
@@ -86,11 +143,18 @@ const bookingSchema = new mongoose.Schema(
     },
 
     // ── Lifecycle ──────────────────────────────────────────────────────────────
+    // Quote workflow additions (see constants/quoteWorkflow.js):
+    //   quote_rejected     — customer rejected the quotation
+    //   revision_requested — customer asked for a revised quotation
+    //   closed             — customer closed the request after rejecting (terminal)
     status: {
       type: String,
       enum: [
         "pending",
         "awaiting_user_confirmation",
+        "quote_rejected",
+        "revision_requested",
+        "closed",
         "confirmed",
         "completed",
         "cancelled",
@@ -102,6 +166,24 @@ const bookingSchema = new mongoose.Schema(
     quotation: {
       type: quotationSchema,
       default: null,
+    },
+
+    // ── Quote rejection details (null until the customer rejects) ─────────────
+    rejection: {
+      type: rejectionSchema,
+      default: null,
+    },
+
+    // ── Superseded quotations (append-only; empty for legacy records) ─────────
+    quotationHistory: {
+      type: [quotationHistorySchema],
+      default: [],
+    },
+
+    // ── Activity timeline (append-only; empty for legacy records) ─────────────
+    history: {
+      type: [historyEventSchema],
+      default: [],
     },
 
     // ── Legacy / derived price ─────────────────────────────────────────────────

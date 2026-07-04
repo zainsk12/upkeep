@@ -11,7 +11,9 @@ const { sendWorkerAssignedEmail } = require("../services/emailService");
 const {
   notifyTechnicianAssigned,
   notifyServiceCompleted,
+  notifyQuoteRevised,
 } = require("../services/notificationService");
+const { pushHistory } = require("../constants/quoteWorkflow");
 
 // ── GET /api/admin/bookings ────────────────────────────────────────────────────
 const getAllBookings = async (req, res) => {
@@ -46,12 +48,21 @@ const updateBooking = async (req, res) => {
     // Tracks whether THIS request transitioned the booking to "completed", so the
     // service-completed notification fires exactly once on the real transition.
     let justCompleted = false;
+    // Tracks whether THIS request sent a revised quotation (revision_requested →
+    // awaiting_user_confirmation), so the customer is notified exactly once.
+    let sentRevisedQuote = false;
 
     // ── Set quotation ──────────────────────────────────────────────────────────
+    // Allowed from "pending" (first quote) and "revision_requested" (revised
+    // quote after the customer rejected the previous one). The previous
+    // quotation was already snapshotted into quotationHistory at rejection time,
+    // so overwriting `quotation` here never loses history.
     if (quotation !== undefined) {
-      if (booking.status !== "pending") {
+      const isRevision = booking.status === "revision_requested";
+      if (booking.status !== "pending" && !isRevision) {
         return res.status(400).json({
-          message: "A quotation can only be sent when the booking is pending.",
+          message:
+            "A quotation can only be sent when the booking is pending or a revision has been requested.",
         });
       }
 
@@ -76,6 +87,13 @@ const updateBooking = async (req, res) => {
       };
       booking.price  = total;
       booking.status = "awaiting_user_confirmation";
+      // The rejection belonged to the superseded quote (kept in
+      // quotationHistory + the timeline) — the new quote starts clean.
+      if (isRevision) {
+        booking.rejection = null;
+        sentRevisedQuote = true;
+      }
+      pushHistory(booking, isRevision ? "revised_quote_sent" : "quote_sent", "admin", { total });
     }
 
     // ── Set bare price (legacy) ────────────────────────────────────────────────
@@ -91,6 +109,7 @@ const updateBooking = async (req, res) => {
       }
       booking.price  = parsedPrice;
       booking.status = "awaiting_user_confirmation";
+      pushHistory(booking, "quote_sent", "admin", { total: parsedPrice });
     }
 
     // ── Assign structured worker ───────────────────────────────────────────────
@@ -137,6 +156,7 @@ const updateBooking = async (req, res) => {
       if (prevWorkerId !== worker._id.toString()) {
         shouldSendAssignmentEmail = true;
         assignedWorkerDoc = worker;
+        pushHistory(booking, "worker_assigned", "admin", { worker: worker.name });
 
         // Backfill a booking reference for legacy records (pre-`bookingId`) so
         // the email never shows "Booking ID: undefined". Persisted on save below.
@@ -160,6 +180,7 @@ const updateBooking = async (req, res) => {
       }
       booking.status = "completed";
       justCompleted = true;
+      pushHistory(booking, "completed", "admin");
     }
 
     // ── Cancel booking (soft delete) ───────────────────────────────────────────
@@ -174,7 +195,13 @@ const updateBooking = async (req, res) => {
           message: "Booking is already cancelled.",
         });
       }
+      if (booking.status === "closed") {
+        return res.status(400).json({
+          message: "This request was closed by the customer and cannot be modified.",
+        });
+      }
       booking.status = "cancelled";
+      pushHistory(booking, "cancelled", "admin");
     }
 
     await booking.save();
@@ -206,6 +233,11 @@ const updateBooking = async (req, res) => {
     if (justCompleted) {
       notifyServiceCompleted(booking).catch((e) =>
         console.error("[NOTIF] service_completed emit failed:", e.message)
+      );
+    }
+    if (sentRevisedQuote) {
+      notifyQuoteRevised(booking).catch((e) =>
+        console.error("[NOTIF] quote_revised emit failed:", e.message)
       );
     }
   } catch (err) {

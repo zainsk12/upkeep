@@ -51,6 +51,19 @@ Austrum_Work/
    - **Success** → status becomes `confirmed` **and** a confirmation email is sent
      from `upkeep.austrum@gmail.com`.
    - **Failure** → status stays `awaiting_user_confirmation`, no email.
+4. **Reject** → user clicks *Reject Quote*, confirms, and picks a reason
+   (`POST /api/bookings/:id/reject`) → status `quote_rejected`. The rejected
+   quotation is snapshotted into `quotationHistory` and admins are notified.
+   From here the user chooses:
+   - **Request Revised Quote** → `POST /api/bookings/:id/request-revision` →
+     status `revision_requested`; admin sends a new quotation → back to
+     `awaiting_user_confirmation` (revision history is preserved).
+   - **Close Request** → `POST /api/bookings/:id/close` → status `closed`
+     (terminal — no further quotations).
+
+   Every transition is appended to the booking's `history` array, rendered as
+   the request timeline on both dashboards. Allowed transitions live in
+   `server/constants/quoteWorkflow.js`.
 
 ---
 

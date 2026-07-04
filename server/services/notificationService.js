@@ -7,6 +7,7 @@
 // unhandledRejection. Callers may `await` it or not.
 
 const Notification = require("../models/Notification");
+const User = require("../models/User");
 const { NOTIFICATION_CATALOG } = require("../constants/notifications");
 const { emitToUser, NOTIFICATION_EVENTS } = require("./socketService");
 const { getPreferencesLean, isCategoryAllowed } = require("./notificationPreferenceService");
@@ -165,6 +166,82 @@ const notifyPasswordChanged = (userId) =>
     link: "/settings/account",
   });
 
+// ── Quote workflow notifications ───────────────────────────────────────────────
+
+/**
+ * Fan a notification out to every admin user. Used by the quote rejection
+ * workflow so admins learn about customer actions in real time. Fire-and-forget
+ * safe like everything else here: a lookup failure resolves to an empty result.
+ */
+async function notifyAdmins(payload) {
+  try {
+    const admins = await User.find({ role: "admin" }).select("_id").lean();
+    return Promise.all(
+      admins.map((a) => createNotification({ ...payload, userId: a._id }))
+    );
+  } catch (err) {
+    console.error("[NOTIF] notifyAdmins failed:", err.message);
+    return null;
+  }
+}
+
+const notifyQuoteRejected = (booking, rejection) =>
+  notifyAdmins({
+    type: "quote_rejected",
+    title: "Quote Rejected",
+    message:
+      `Customer rejected your quotation for ${booking.service}` +
+      ` (₹${(booking.quotation?.total ?? booking.price ?? 0).toLocaleString("en-IN")}).` +
+      ` Reason: ${rejection.reason}` +
+      (rejection.comment ? ` — "${rejection.comment}"` : ""),
+    metadata: {
+      bookingId: booking._id,
+      bookingRef: booking.bookingId,
+      service: booking.service,
+      reason: rejection.reason,
+      comment: rejection.comment || "",
+    },
+  });
+
+const notifyRevisionRequested = (booking) =>
+  notifyAdmins({
+    type: "revision_requested",
+    title: "Revised Quote Requested",
+    message:
+      `Customer requested a revised quotation for ${booking.service}.` +
+      (booking.rejection?.reason ? ` Original rejection reason: ${booking.rejection.reason}.` : ""),
+    metadata: {
+      bookingId: booking._id,
+      bookingRef: booking.bookingId,
+      service: booking.service,
+      reason: booking.rejection?.reason || "",
+    },
+  });
+
+const notifyRequestClosed = (booking) =>
+  notifyAdmins({
+    type: "request_closed",
+    title: "Request Closed",
+    message: `Customer closed the ${booking.service} request after rejecting the quotation.`,
+    metadata: {
+      bookingId: booking._id,
+      bookingRef: booking.bookingId,
+      service: booking.service,
+      reason: booking.rejection?.reason || "",
+    },
+  });
+
+// Customer-facing: a revised quotation has been sent after they asked for one.
+const notifyQuoteRevised = (booking) =>
+  createNotification({
+    userId: booking.userId,
+    type: "quote_revised",
+    title: "Revised Quotation Received",
+    message: `We've sent a revised quotation for your ${booking.service} request. Tap to review and respond.`,
+    link: "/my-bookings",
+    metadata: { bookingId: booking._id, bookingRef: booking.bookingId, service: booking.service },
+  });
+
 const notifyWelcome = (userId, name) =>
   createNotification({
     userId,
@@ -183,4 +260,8 @@ module.exports = {
   notifyProfileUpdated,
   notifyPasswordChanged,
   notifyWelcome,
+  notifyQuoteRejected,
+  notifyRevisionRequested,
+  notifyRequestClosed,
+  notifyQuoteRevised,
 };

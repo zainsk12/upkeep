@@ -5,7 +5,7 @@ import { toast } from "../utils/toast";
 import {
   RefreshCw, AlertCircle, UserCheck, FileText,
   CheckCircle2, Search, ChevronDown, ChevronUp, CalendarDays, X,
-  IndianRupee, Phone, Trash2,
+  IndianRupee, Phone, Trash2, XCircle, FileEdit, History,
 } from "lucide-react";
 import { getAllBookings, updateBooking, getWorkers, deleteBooking } from "../services/api";
 import { useAdminAuth } from "../context/AdminAuthContext";
@@ -23,6 +23,18 @@ const STATUS_CFG = {
     badge: "bg-violet-50 text-violet-700 border-violet-200",
     dot: "bg-violet-500",
     heading: "⏳ Awaiting User Confirmation",
+  },
+  revision_requested: {
+    label: "Revision Requested",
+    badge: "bg-sky-50 text-sky-700 border-sky-200",
+    dot: "bg-sky-500",
+    heading: "📝 Revision Requested — Send Revised Quotation",
+  },
+  quote_rejected: {
+    label: "Quote Rejected",
+    badge: "bg-rose-50 text-rose-700 border-rose-200",
+    dot: "bg-rose-500",
+    heading: "🚫 Quote Rejected — Awaiting Customer Decision",
   },
   confirmed: {
     label: "Confirmed",
@@ -42,12 +54,21 @@ const STATUS_CFG = {
     dot: "bg-red-500",
     heading: "❌ Cancelled",
   },
+  closed: {
+    label: "Closed",
+    badge: "bg-slate-100 text-slate-600 border-slate-200",
+    dot: "bg-slate-400",
+    heading: "📁 Closed by Customer",
+  },
 };
 
-const SECTION_ORDER = ["pending", "awaiting_user_confirmation", "confirmed", "completed", "cancelled"];
+const SECTION_ORDER = [
+  "pending", "revision_requested", "awaiting_user_confirmation",
+  "quote_rejected", "confirmed", "completed", "cancelled", "closed",
+];
 
 // Statuses that start collapsed in the admin view (archive sections)
-const COLLAPSED_BY_DEFAULT = new Set(["completed", "cancelled"]);
+const COLLAPSED_BY_DEFAULT = new Set(["completed", "cancelled", "closed"]);
 
 /* ─── Quotation line items ── */
 const QUOTE_LINES = [
@@ -157,6 +178,140 @@ function QuotationBreakdown({ quotation }) {
           <p className="text-muted text-xs italic mt-0.5 font-sans">{quotation.notes}</p>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ─── Rejection details (shown after a customer rejects a quote) ── */
+function RejectionPanel({ rejection }) {
+  if (!rejection?.reason) return null;
+  return (
+    <div className="rounded-xl overflow-hidden border border-rose-200">
+      <div className="px-4 py-2.5 bg-rose-50 flex items-center gap-2">
+        <XCircle size={13} className="text-rose-500" />
+        <span className="text-rose-600 text-xs font-semibold uppercase tracking-wide font-sans">
+          Customer Rejected the Quote
+        </span>
+        {rejection.rejectedAt && (
+          <span className="ml-auto text-rose-400 text-xs font-sans">
+            {fmt(rejection.rejectedAt)}
+          </span>
+        )}
+      </div>
+      <div className="px-4 py-3 bg-rose-50/40 flex flex-col gap-1">
+        <p className="text-text text-sm font-semibold font-sans">{rejection.reason}</p>
+        {rejection.comment && (
+          <p className="text-muted text-xs italic font-sans leading-relaxed">
+            “{rejection.comment}”
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Previous quotations (revision history — append-only) ── */
+function QuotationHistoryPanel({ history }) {
+  const [open, setOpen] = useState(false);
+  if (!history?.length) return null;
+  return (
+    <div className="rounded-xl overflow-hidden border border-border">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="w-full px-4 py-2.5 bg-gray-50 flex items-center gap-2 hover:bg-gray-100 transition-colors"
+      >
+        <FileText size={13} className="text-muted" />
+        <span className="text-muted text-xs font-semibold uppercase tracking-wide font-sans">
+          Previous Quotations ({history.length})
+        </span>
+        <ChevronDown
+          size={14}
+          className={`ml-auto text-muted transition-transform duration-300 ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      {open && (
+        <div className="divide-y divide-border">
+          {history.map((q) => (
+            <div key={q.revision} className="px-4 py-3 flex flex-col gap-1">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-muted uppercase tracking-wide font-sans">
+                  Revision {q.revision}
+                </span>
+                <span className="text-text font-bold text-sm font-sans line-through decoration-rose-400/60">
+                  ₹{fmtAmount(q.total)}
+                </span>
+              </div>
+              {q.rejectionReason && (
+                <p className="text-rose-500 text-xs font-sans">
+                  Rejected{q.rejectedAt ? ` on ${fmt(q.rejectedAt)}` : ""}: {q.rejectionReason}
+                  {q.rejectionComment ? ` — “${q.rejectionComment}”` : ""}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Activity timeline (mirrors the customer-side request timeline) ── */
+const TIMELINE_NEGATIVE = new Set(["quote_rejected", "cancelled", "closed"]);
+
+function TimelinePanel({ history }) {
+  const [open, setOpen] = useState(false);
+  if (!history?.length) return null;
+  return (
+    <div className="rounded-xl overflow-hidden border border-border">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="w-full px-4 py-2.5 bg-gray-50 flex items-center gap-2 hover:bg-gray-100 transition-colors"
+      >
+        <History size={13} className="text-muted" />
+        <span className="text-muted text-xs font-semibold uppercase tracking-wide font-sans">
+          Activity Timeline
+        </span>
+        <ChevronDown
+          size={14}
+          className={`ml-auto text-muted transition-transform duration-300 ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      {open && (
+        <ol className="px-4 py-3">
+          {history.map((ev, i) => {
+            const negative = TIMELINE_NEGATIVE.has(ev.event);
+            const isLast   = i === history.length - 1;
+            return (
+              <li key={`${ev.event}-${i}`} className="relative pl-6 pb-3.5 last:pb-0">
+                {!isLast && <span className="absolute left-[7px] top-4 bottom-0 w-px bg-border" />}
+                <span
+                  className={`absolute left-0 top-0.5 w-[15px] h-[15px] rounded-full flex items-center justify-center
+                    ${negative ? "bg-rose-100" : "bg-emerald-100"}`}
+                >
+                  {negative
+                    ? <X size={9} strokeWidth={3} className="text-rose-500" />
+                    : <CheckCircle2 size={11} className="text-emerald-500" />}
+                </span>
+                <p className={`text-xs font-semibold font-sans leading-tight ${isLast ? "text-text" : "text-muted"}`}>
+                  {ev.label || ev.event}
+                </p>
+                <p className="text-[11px] text-muted font-sans mt-0.5">
+                  {ev.at && new Date(ev.at).toLocaleString("en-IN", {
+                    day: "numeric", month: "short", year: "numeric",
+                    hour: "2-digit", minute: "2-digit",
+                  })}
+                  {ev.by ? ` · by ${ev.by}` : ""}
+                </p>
+                {ev.meta?.reason && (
+                  <p className="text-[11px] text-rose-500 font-sans mt-0.5">Reason: {ev.meta.reason}</p>
+                )}
+              </li>
+            );
+          })}
+        </ol>
+      )}
     </div>
   );
 }
@@ -274,7 +429,7 @@ function ConfirmDeleteModal({ booking, onClose, onConfirm, deleting }) {
 }
 
 /* ─── Quotation modal ── */
-function QuotationModal({ booking, onClose, onSubmit, saving }) {
+function QuotationModal({ booking, onClose, onSubmit, saving, isRevision = false }) {
   const [fields, setFields] = useState({
     labour: "", materials: "", travel: "",
     inspection: "", convenience_fee: "", tax: "", notes: "",
@@ -314,7 +469,9 @@ function QuotationModal({ booking, onClose, onSubmit, saving }) {
             <p className="text-white/60 text-xs uppercase tracking-widest mb-0.5 font-sans">
               Booking #{booking._id.slice(-6).toUpperCase()}
             </p>
-            <h2 className="text-white font-bold text-lg font-sans leading-tight">Create Quotation</h2>
+            <h2 className="text-white font-bold text-lg font-sans leading-tight">
+              {isRevision ? "Create Revised Quotation" : "Create Quotation"}
+            </h2>
             <p className="text-white/70 text-xs mt-1 font-sans">{booking.service}</p>
           </div>
           <button
@@ -420,7 +577,7 @@ function QuotationModal({ booking, onClose, onSubmit, saving }) {
             >
               {saving
                 ? <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                : "Send Quotation"
+                : (isRevision ? "Send Revised Quotation" : "Send Quotation")
               }
             </button>
           </div>
@@ -704,9 +861,10 @@ function BookingCard({ booking, workers, onUpdate, onDelete }) {
     const total = Object.entries(quotationData)
       .filter(([k, v]) => k !== "notes" && typeof v === "number")
       .reduce((s, [, v]) => s + v, 0);
+    const isRevision = booking.status === "revision_requested";
     doUpdate(
       { quotation: quotationData },
-      `Quotation ₹${fmtAmount(total)} sent — awaiting user confirmation`
+      `${isRevision ? "Revised quotation" : "Quotation"} ₹${fmtAmount(total)} sent — awaiting user confirmation`
     );
     setShowQuoteModal(false);
   };
@@ -749,6 +907,7 @@ function BookingCard({ booking, workers, onUpdate, onDelete }) {
           onClose={() => setShowQuoteModal(false)}
           onSubmit={handleSubmitQuotation}
           saving={saving}
+          isRevision={booking.status === "revision_requested"}
         />
       )}
       {showCompleteModal && (
@@ -856,9 +1015,24 @@ function BookingCard({ booking, workers, onUpdate, onDelete }) {
               </div>
             ) : null}
 
+            {/* Rejection details — why the customer rejected the quote */}
+            {booking.rejection && (
+              <RejectionPanel rejection={booking.rejection} />
+            )}
+
             {/* Quotation breakdown */}
             {booking.quotation && (
               <QuotationBreakdown quotation={booking.quotation} />
+            )}
+
+            {/* Superseded quotations (revision history) */}
+            {booking.quotationHistory?.length > 0 && (
+              <QuotationHistoryPanel history={booking.quotationHistory} />
+            )}
+
+            {/* Activity timeline */}
+            {booking.history?.length > 0 && (
+              <TimelinePanel history={booking.history} />
             )}
 
             {/* Pending: quotation */}
@@ -870,6 +1044,18 @@ function BookingCard({ booking, workers, onUpdate, onDelete }) {
               >
                 <FileText size={14} />
                 Create Quotation
+              </button>
+            )}
+
+            {/* Revision requested: send a revised quotation */}
+            {booking.status === "revision_requested" && (
+              <button
+                onClick={() => setShowQuoteModal(true)}
+                disabled={saving}
+                className="btn-primary w-full justify-center gap-2"
+              >
+                <FileEdit size={14} />
+                Create Revised Quotation
               </button>
             )}
 
@@ -1037,7 +1223,9 @@ export default function BookingsPage() {
     return acc;
   }, {});
 
-  const totalPending = bookings.filter(b => b.status === "pending").length;
+  const totalPending = bookings.filter(
+    b => b.status === "pending" || b.status === "revision_requested"
+  ).length;
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-5xl overflow-x-hidden">

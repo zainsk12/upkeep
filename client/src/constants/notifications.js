@@ -7,7 +7,8 @@
 
 import {
   CalendarCheck, CalendarPlus, UserCheck, PlayCircle, CheckCircle2, CreditCard,
-  XCircle, BadgePercent, UserCog, KeyRound, PartyPopper,
+  XCircle, BadgePercent, UserCog, KeyRound, PartyPopper, FileEdit, FileText,
+  Archive,
 } from "lucide-react";
 
 /* ─── Filter categories (used by the /notifications filter chips) ─────────── */
@@ -36,6 +37,34 @@ export const NOTIFICATION_TYPES = {
     bg: "bg-blue-50 dark:bg-blue-900/20",
     category: "bookings",
     label: "Booking",
+  },
+  quote_rejected: {
+    icon: XCircle,
+    color: "text-rose-500",
+    bg: "bg-rose-50 dark:bg-rose-900/20",
+    category: "bookings",
+    label: "Quote",
+  },
+  revision_requested: {
+    icon: FileEdit,
+    color: "text-sky-600 dark:text-sky-500",
+    bg: "bg-sky-50 dark:bg-sky-900/20",
+    category: "bookings",
+    label: "Quote",
+  },
+  quote_revised: {
+    icon: FileText,
+    color: "text-purple-500",
+    bg: "bg-purple-50 dark:bg-purple-900/20",
+    category: "bookings",
+    label: "Quote",
+  },
+  request_closed: {
+    icon: Archive,
+    color: "text-slate-500 dark:text-slate-400",
+    bg: "bg-slate-100 dark:bg-slate-700/30",
+    category: "bookings",
+    label: "Request",
   },
   technician_assigned: {
     icon: UserCheck,

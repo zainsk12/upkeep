@@ -18,6 +18,10 @@ const NOTIFICATION_PRIORITIES = ["low", "normal", "high"];
 const NOTIFICATION_CATALOG = {
   booking_created:     { category: "bookings", icon: "CalendarPlus",  priority: "normal" },
   booking_confirmed:   { category: "bookings", icon: "CalendarCheck", priority: "normal" },
+  quote_rejected:      { category: "bookings", icon: "XCircle",       priority: "high"   },
+  revision_requested:  { category: "bookings", icon: "FileEdit",      priority: "high"   },
+  quote_revised:       { category: "bookings", icon: "FileText",      priority: "high"   },
+  request_closed:      { category: "bookings", icon: "Archive",       priority: "normal" },
   technician_assigned: { category: "bookings", icon: "UserCheck",     priority: "normal" },
   service_started:     { category: "bookings", icon: "Wrench",        priority: "normal" },
   service_completed:   { category: "bookings", icon: "CheckCircle2",  priority: "normal" },

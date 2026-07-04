@@ -4,12 +4,21 @@ const Booking  = require("../models/Booking");
 const Service  = require("../models/Service");
 const Settings = require("../models/Settings");
 const { validateBookingDateTime } = require("../utils/bookingValidation"); // ← MODULE 2
+const isValidId = require("../utils/isValidObjectId");
 const { generateUniqueBookingId } = require("../utils/bookingId");
 const { verifyRecaptcha } = require("../services/recaptchaService");
 const {
   notifyBookingCreated,
   notifyBookingConfirmed,
+  notifyQuoteRejected,
+  notifyRevisionRequested,
+  notifyRequestClosed,
 } = require("../services/notificationService");
+const {
+  REJECTION_REASONS,
+  canTransition,
+  pushHistory,
+} = require("../constants/quoteWorkflow");
 
 // ── POST /api/bookings ─────────────────────────────────────────────────────────
 const createBooking = async (req, res) => {
@@ -71,6 +80,10 @@ const createBooking = async (req, res) => {
       phone: phone || "",
       serviceIssue,
       notes: notes || "",
+      // Seed the activity timeline — every later transition appends to this.
+      history: [
+        { event: "requested", label: "Service Requested", by: "customer", at: new Date() },
+      ],
     });
 
     res.status(201).json({ message: "Booking created successfully.", booking });
@@ -156,6 +169,7 @@ const confirmBooking = async (req, res) => {
     // Per the updated flow, the email is sent only once a worker has been
     // assigned to the booking (see adminController.updateBooking).
     booking.status = "confirmed";
+    pushHistory(booking, "confirmed", "customer");
     await booking.save();
     lap("db_save_ms");
 
@@ -174,28 +188,179 @@ const confirmBooking = async (req, res) => {
 };
 
 // ── POST /api/bookings/:id/reject ──────────────────────────────────────────────
-// User rejects the admin's price quote → status becomes "cancelled"
-// No OTP required for rejection (user is cancelling, not committing funds).
+// Quote rejection workflow. The customer rejects the quotation with a reason
+// (one of REJECTION_REASONS; free-text comment required when "Other").
+// Status: awaiting_user_confirmation → quote_rejected. The rejected quotation
+// is snapshotted into quotationHistory so a later revision never overwrites it.
+// From quote_rejected the customer can request a revision or close the request.
 const rejectBooking = async (req, res) => {
   try {
+    const { reason, comment } = req.body || {};
+
+    // ── Reason validation ────────────────────────────────────────────────────
+    if (!reason || !REJECTION_REASONS.includes(reason)) {
+      return res.status(400).json({
+        message: "A valid rejection reason is required.",
+        reasons: REJECTION_REASONS,
+      });
+    }
+    const trimmedComment = (comment || "").trim();
+    if (reason === "Other" && !trimmedComment) {
+      return res.status(400).json({
+        message: "Please describe your reason when selecting \"Other\".",
+      });
+    }
+    if (trimmedComment.length > 500) {
+      return res.status(400).json({
+        message: "Comment must be 500 characters or fewer.",
+      });
+    }
+
+    if (!isValidId(req.params.id))
+      return res.status(400).json({ message: "Invalid booking ID." });
+
+    const booking = await Booking.findById(req.params.id);
+    if (!booking) return res.status(404).json({ message: "Booking not found." });
+
+    // ── Ownership ────────────────────────────────────────────────────────────
+    if (booking.userId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: "Not authorised." });
+    }
+
+    // ── Status guards (meaningful per-state errors) ──────────────────────────
+    if (booking.status === "quote_rejected") {
+      return res.status(400).json({ message: "This quotation has already been rejected." });
+    }
+    if (booking.status === "confirmed") {
+      return res.status(400).json({ message: "This quotation has already been accepted and cannot be rejected." });
+    }
+    if (booking.status === "completed") {
+      return res.status(400).json({ message: "Completed requests cannot be rejected." });
+    }
+    if (booking.status === "cancelled" || booking.status === "closed") {
+      return res.status(400).json({ message: "This request is no longer active." });
+    }
+    if (!canTransition(booking.status, "quote_rejected")) {
+      return res.status(400).json({ message: "There is no quotation awaiting your response." });
+    }
+
+    // ── Apply rejection ──────────────────────────────────────────────────────
+    booking.rejection = {
+      reason,
+      comment: trimmedComment,
+      rejectedAt: new Date(),
+      rejectedBy: req.user._id,
+    };
+
+    // Snapshot the rejected quotation (append-only revision history).
+    if (booking.quotation && booking.quotation.total > 0) {
+      // When the quote was actually sent — from the timeline if available
+      // (updatedAt is the last save of ANY kind, e.g. a reschedule).
+      const lastQuoteSent = [...booking.history]
+        .reverse()
+        .find((h) => h.event === "quote_sent" || h.event === "revised_quote_sent");
+      booking.quotationHistory.push({
+        revision: booking.quotationHistory.length + 1,
+        ...booking.quotation.toObject(),
+        sentAt: lastQuoteSent?.at || booking.updatedAt,
+        rejectedAt: booking.rejection.rejectedAt,
+        rejectionReason: reason,
+        rejectionComment: trimmedComment,
+      });
+    }
+
+    booking.status = "quote_rejected";
+    pushHistory(booking, "quote_rejected", "customer", { reason, comment: trimmedComment });
+    await booking.save();
+
+    res.json({ message: "Quotation rejected.", booking });
+
+    // Fire-and-forget: notify all admins with the reason.
+    notifyQuoteRejected(booking, booking.rejection).catch((e) =>
+      console.error("[NOTIF] quote_rejected emit failed:", e.message)
+    );
+  } catch (err) {
+    console.error("rejectBooking error:", err.message);
+    res.status(500).json({ message: "Server error. Please try again." });
+  }
+};
+
+// ── POST /api/bookings/:id/request-revision ───────────────────────────────────
+// After rejecting a quote, the customer may ask for a revised quotation.
+// Status: quote_rejected → revision_requested. Admins are notified and can then
+// send a new quotation (see adminController.updateBooking), which moves the
+// booking back to awaiting_user_confirmation.
+const requestQuoteRevision = async (req, res) => {
+  try {
+    if (!isValidId(req.params.id))
+      return res.status(400).json({ message: "Invalid booking ID." });
+
     const booking = await Booking.findById(req.params.id);
     if (!booking) return res.status(404).json({ message: "Booking not found." });
 
     if (booking.userId.toString() !== req.user._id.toString()) {
       return res.status(403).json({ message: "Not authorised." });
     }
-    if (booking.status !== "awaiting_user_confirmation") {
-      return res
-        .status(400)
-        .json({ message: "Booking is not awaiting your confirmation." });
+
+    if (booking.status === "revision_requested") {
+      return res.status(400).json({ message: "A revised quotation has already been requested." });
+    }
+    if (!canTransition(booking.status, "revision_requested")) {
+      return res.status(400).json({
+        message: "A revision can only be requested after rejecting a quotation.",
+      });
     }
 
-    booking.status = "cancelled";
+    booking.status = "revision_requested";
+    pushHistory(booking, "revision_requested", "customer");
     await booking.save();
 
-    res.json({ message: "Booking cancelled.", booking });
+    res.json({ message: "Revised quotation requested.", booking });
+
+    notifyRevisionRequested(booking).catch((e) =>
+      console.error("[NOTIF] revision_requested emit failed:", e.message)
+    );
   } catch (err) {
-    console.error("rejectBooking error:", err.message);
+    console.error("requestQuoteRevision error:", err.message);
+    res.status(500).json({ message: "Server error. Please try again." });
+  }
+};
+
+// ── POST /api/bookings/:id/close ───────────────────────────────────────────────
+// After rejecting a quote, the customer may close the request entirely.
+// Status: quote_rejected → closed (terminal — no new quotations accepted).
+const closeBookingRequest = async (req, res) => {
+  try {
+    if (!isValidId(req.params.id))
+      return res.status(400).json({ message: "Invalid booking ID." });
+
+    const booking = await Booking.findById(req.params.id);
+    if (!booking) return res.status(404).json({ message: "Booking not found." });
+
+    if (booking.userId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: "Not authorised." });
+    }
+
+    if (booking.status === "closed") {
+      return res.status(400).json({ message: "This request is already closed." });
+    }
+    if (!canTransition(booking.status, "closed")) {
+      return res.status(400).json({
+        message: "A request can only be closed after rejecting its quotation.",
+      });
+    }
+
+    booking.status = "closed";
+    pushHistory(booking, "closed", "customer");
+    await booking.save();
+
+    res.json({ message: "Request closed.", booking });
+
+    notifyRequestClosed(booking).catch((e) =>
+      console.error("[NOTIF] request_closed emit failed:", e.message)
+    );
+  } catch (err) {
+    console.error("closeBookingRequest error:", err.message);
     res.status(500).json({ message: "Server error. Please try again." });
   }
 };
@@ -279,5 +444,7 @@ module.exports = {
   getMyBookings,
   confirmBooking,
   rejectBooking,
+  requestQuoteRevision,
+  closeBookingRequest,
   rescheduleBooking,
 };
