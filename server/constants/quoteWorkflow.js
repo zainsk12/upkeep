@@ -22,6 +22,20 @@ const REJECTION_REASONS = [
   "Other",
 ];
 
+// Complete booking status vocabulary — the single source of truth for the
+// Booking model's status enum. Transition maps below are defined over these
+// values; adding a status starts here.
+const BOOKING_STATUSES = [
+  "pending",
+  "awaiting_user_confirmation",
+  "quote_rejected",
+  "revision_requested",
+  "closed",
+  "confirmed",
+  "completed",
+  "cancelled",
+];
+
 // Allowed status transitions for the quote workflow. Anything not listed here
 // is rejected by canTransition(). Transitions outside this map (e.g. admin
 // cancelling a pending booking) are governed by their own controller guards.
@@ -31,8 +45,39 @@ const QUOTE_TRANSITIONS = {
   revision_requested:         ["awaiting_user_confirmation"],
 };
 
+// Customer service-cancellation transitions — every pre-service stage may move
+// to "cancelled". Deliberately absent: in_progress, completed, cancelled,
+// closed (invalid sources). A future NO_SHOW workflow adds its own map here.
+const CANCELLATION_TRANSITIONS = {
+  pending:                    ["cancelled"],
+  awaiting_user_confirmation: ["cancelled"],
+  quote_rejected:             ["cancelled"],
+  revision_requested:         ["cancelled"],
+  confirmed:                  ["cancelled"],
+};
+
+// Statuses from which the customer may reschedule — completed, cancelled and
+// closed bookings are immutable. Single source for the controller guard and
+// the Booking model's `canReschedule` flag.
+const RESCHEDULABLE_STATUSES = ["pending", "awaiting_user_confirmation", "confirmed"];
+
+// Merged transition map — the single workflow engine both the quote and the
+// cancellation flows are validated against.
+const WORKFLOW_TRANSITIONS = Object.keys({
+  ...QUOTE_TRANSITIONS,
+  ...CANCELLATION_TRANSITIONS,
+}).reduce((map, from) => {
+  map[from] = [
+    ...new Set([
+      ...(QUOTE_TRANSITIONS[from] || []),
+      ...(CANCELLATION_TRANSITIONS[from] || []),
+    ]),
+  ];
+  return map;
+}, {});
+
 const canTransition = (from, to) =>
-  Array.isArray(QUOTE_TRANSITIONS[from]) && QUOTE_TRANSITIONS[from].includes(to);
+  Array.isArray(WORKFLOW_TRANSITIONS[from]) && WORKFLOW_TRANSITIONS[from].includes(to);
 
 // Timeline event → human label. Stored on each history entry so old clients
 // (and emails/exports) can render entries without a lookup table.
@@ -46,6 +91,7 @@ const HISTORY_LABELS = {
   worker_assigned:     "Worker Assigned",
   completed:           "Service Completed",
   cancelled:           "Booking Cancelled",
+  cancellation_fee_paid: "Cancellation Fee Paid",
   closed:              "Request Closed",
 };
 
@@ -67,8 +113,9 @@ function pushHistory(booking, event, by = "system", meta = {}) {
 
 module.exports = {
   REJECTION_REASONS,
-  QUOTE_TRANSITIONS,
-  HISTORY_LABELS,
+  BOOKING_STATUSES,
+  RESCHEDULABLE_STATUSES,
+  CANCELLATION_TRANSITIONS,
   canTransition,
   pushHistory,
 };

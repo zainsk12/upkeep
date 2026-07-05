@@ -5,7 +5,7 @@ import { toast } from "../utils/toast";
 import {
   RefreshCw, AlertCircle, UserCheck, FileText,
   CheckCircle2, Search, ChevronDown, ChevronUp, CalendarDays, X,
-  IndianRupee, Phone, Trash2, XCircle, FileEdit, History,
+  IndianRupee, Phone, Trash2, XCircle, FileEdit, History, CalendarX,
 } from "lucide-react";
 import { getAllBookings, updateBooking, getWorkers, deleteBooking } from "../services/api";
 import { useAdminAuth } from "../context/AdminAuthContext";
@@ -210,6 +210,69 @@ function RejectionPanel({ rejection }) {
   );
 }
 
+/* ─── Cancellation details (shown after a customer cancels a booking) ── */
+// window slug → human label (mirrors server/constants/cancellationWorkflow.js)
+const CANCEL_WINDOW_LABELS = {
+  free:          "Free Cancellation",
+  early_warning: "Early Cancellation",
+  late_warning:  "Late Cancellation",
+  fee_required:  "Last-Minute Cancellation",
+};
+
+function CancellationPanel({ cancellation }) {
+  if (!cancellation?.reason) return null;
+  return (
+    <div className="rounded-xl overflow-hidden border border-red-200">
+      <div className="px-4 py-2.5 bg-red-50 flex items-center gap-2">
+        <CalendarX size={13} className="text-red-500" />
+        <span className="text-red-600 text-xs font-semibold uppercase tracking-wide font-sans">
+          Cancelled by Customer
+        </span>
+        {cancellation.requestedAt && (
+          <span className="ml-auto text-red-400 text-xs font-sans">
+            {fmt(cancellation.requestedAt)}
+          </span>
+        )}
+      </div>
+      <div className="px-4 py-3 bg-red-50/40 flex flex-col gap-1">
+        <p className="text-text text-sm font-semibold font-sans">{cancellation.reason}</p>
+        {cancellation.comment && (
+          <p className="text-muted text-xs italic font-sans leading-relaxed">
+            “{cancellation.comment}”
+          </p>
+        )}
+        <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1">
+          {cancellation.window && (
+            <p className="text-muted text-xs font-sans">
+              Window:{" "}
+              <span className="font-semibold text-text">
+                {CANCEL_WINDOW_LABELS[cancellation.window] || cancellation.window}
+              </span>
+            </p>
+          )}
+          {cancellation.stage && (
+            <p className="text-muted text-xs font-sans">
+              Cancelled from: <span className="font-semibold text-text">{cancellation.stage}</span>
+            </p>
+          )}
+          {cancellation.fee > 0 && (
+            <p className="text-muted text-xs font-sans">
+              Fee:{" "}
+              <span className="font-semibold text-text">₹{fmtAmount(cancellation.fee)}</span>
+              {cancellation.paymentStatus === "paid" && (
+                <span className="text-emerald-600 font-semibold"> · paid</span>
+              )}
+              {cancellation.paymentStatus === "waived" && (
+                <span className="text-amber-600 font-semibold"> · waived</span>
+              )}
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ─── Previous quotations (revision history — append-only) ── */
 function QuotationHistoryPanel({ history }) {
   const [open, setOpen] = useState(false);
@@ -306,6 +369,15 @@ function TimelinePanel({ history }) {
                 </p>
                 {ev.meta?.reason && (
                   <p className="text-[11px] text-rose-500 font-sans mt-0.5">Reason: {ev.meta.reason}</p>
+                )}
+                {ev.meta?.windowLabel && ev.meta.windowLabel !== "Free Cancellation" && (
+                  <p className="text-[11px] text-muted font-sans mt-0.5 italic">{ev.meta.windowLabel}</p>
+                )}
+                {ev.meta?.fee > 0 && (
+                  <p className="text-[11px] text-muted font-sans mt-0.5">Fee: ₹{fmtAmount(ev.meta.fee)}</p>
+                )}
+                {ev.event === "cancellation_fee_paid" && ev.meta?.amount > 0 && (
+                  <p className="text-[11px] text-muted font-sans mt-0.5">Amount: ₹{fmtAmount(ev.meta.amount)}</p>
                 )}
               </li>
             );
@@ -1016,6 +1088,10 @@ function BookingCard({ booking, workers, onUpdate, onDelete }) {
             ) : null}
 
             {/* Rejection details — why the customer rejected the quote */}
+            {booking.cancellation && (
+              <CancellationPanel cancellation={booking.cancellation} />
+            )}
+
             {booking.rejection && (
               <RejectionPanel rejection={booking.rejection} />
             )}

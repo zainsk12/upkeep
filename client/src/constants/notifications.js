@@ -8,7 +8,7 @@
 import {
   CalendarCheck, CalendarPlus, UserCheck, PlayCircle, CheckCircle2, CreditCard,
   XCircle, BadgePercent, UserCog, KeyRound, PartyPopper, FileEdit, FileText,
-  Archive,
+  Archive, CalendarX,
 } from "lucide-react";
 
 /* ─── Filter categories (used by the /notifications filter chips) ─────────── */
@@ -58,6 +58,13 @@ export const NOTIFICATION_TYPES = {
     bg: "bg-purple-50 dark:bg-purple-900/20",
     category: "bookings",
     label: "Quote",
+  },
+  booking_cancelled: {
+    icon: CalendarX,
+    color: "text-red-500",
+    bg: "bg-red-50 dark:bg-red-900/20",
+    category: "bookings",
+    label: "Booking",
   },
   request_closed: {
     icon: Archive,

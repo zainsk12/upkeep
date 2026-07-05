@@ -8,12 +8,14 @@ import {
   CalendarPlus, CalendarCheck, UserCheck, PlayCircle, CheckCircle2,
   CreditCard, XCircle, BadgePercent, UserCog, KeyRound, PartyPopper,
   Bell, Gift, Megaphone, Info, AlertTriangle, Tag, Sparkles, Wrench, Star,
+  CalendarX,
 } from "lucide-react";
 
 /* type → display meta (label + icon + colour). Keys match the server enum. */
 export const TYPE_META = {
   booking_created:     { label: "Booking Created",     icon: CalendarPlus,  color: "text-sky-600",     bg: "bg-sky-50" },
   booking_confirmed:   { label: "Booking Confirmed",   icon: CalendarCheck, color: "text-blue-600",    bg: "bg-blue-50" },
+  booking_cancelled:   { label: "Booking Cancelled",   icon: CalendarX,     color: "text-red-600",     bg: "bg-red-50" },
   technician_assigned: { label: "Technician Assigned", icon: UserCheck,     color: "text-indigo-600",  bg: "bg-indigo-50" },
   service_started:     { label: "Service Started",     icon: PlayCircle,    color: "text-cyan-600",    bg: "bg-cyan-50" },
   service_completed:   { label: "Service Completed",   icon: CheckCircle2,  color: "text-emerald-600", bg: "bg-emerald-50" },
@@ -30,7 +32,7 @@ export const TYPE_OPTIONS = Object.entries(TYPE_META).map(([value, m]) => ({ val
 /* Sensible default category per type (mirrors the server catalog) — used to
    auto-fill the category when the admin picks a type. */
 export const TYPE_DEFAULT_CATEGORY = {
-  booking_created: "bookings", booking_confirmed: "bookings", technician_assigned: "bookings",
+  booking_created: "bookings", booking_confirmed: "bookings", booking_cancelled: "bookings", technician_assigned: "bookings",
   service_started: "bookings", service_completed: "bookings",
   payment_successful: "payments", payment_failed: "payments",
   special_offer: "offers", profile_updated: "account", password_changed: "account", welcome: "system",

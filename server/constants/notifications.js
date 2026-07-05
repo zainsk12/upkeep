@@ -22,6 +22,7 @@ const NOTIFICATION_CATALOG = {
   revision_requested:  { category: "bookings", icon: "FileEdit",      priority: "high"   },
   quote_revised:       { category: "bookings", icon: "FileText",      priority: "high"   },
   request_closed:      { category: "bookings", icon: "Archive",       priority: "normal" },
+  booking_cancelled:   { category: "bookings", icon: "CalendarX",     priority: "high"   },
   technician_assigned: { category: "bookings", icon: "UserCheck",     priority: "normal" },
   service_started:     { category: "bookings", icon: "Wrench",        priority: "normal" },
   service_completed:   { category: "bookings", icon: "CheckCircle2",  priority: "normal" },

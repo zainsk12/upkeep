@@ -9,8 +9,13 @@
 const Notification = require("../models/Notification");
 const User = require("../models/User");
 const { NOTIFICATION_CATALOG } = require("../constants/notifications");
-const { emitToUser, NOTIFICATION_EVENTS } = require("./socketService");
-const { getPreferencesLean, isCategoryAllowed } = require("./notificationPreferenceService");
+const { CANCELLATION_PAYMENT_STATUSES } = require("../constants/cancellationWorkflow");
+const { emitToUser, hasActiveSockets, NOTIFICATION_EVENTS } = require("./socketService");
+const {
+  getPreferencesLean,
+  isCategoryAllowed,
+  filterInAppEnabled,
+} = require("./notificationPreferenceService");
 const { deliverExternal } = require("./channels");
 
 // Normalise a userId that may be a raw ObjectId or a populated user document.
@@ -73,9 +78,15 @@ async function createNotification({
     // ── Real-time push to the recipient's active sessions ──────────────────────
     // Include the authoritative unread count so clients set an absolute value
     // (never drift). Guarded so a socket hiccup can't fail the write.
+    // The unread count exists only to feed this emit — when the user has no
+    // connected sockets the emit is a no-op, so skip the count query entirely
+    // (matters during admin fan-outs, where most recipients are offline).
+    // Offline users still get the correct count from the REST API on next load.
     try {
-      const unreadCount = await Notification.countDocuments({ userId: uid, isRead: false });
-      emitToUser(uid, NOTIFICATION_EVENTS.CREATED, { notification: doc.toObject(), unreadCount });
+      if (hasActiveSockets(uid)) {
+        const unreadCount = await Notification.countDocuments({ userId: uid, isRead: false });
+        emitToUser(uid, NOTIFICATION_EVENTS.CREATED, { notification: doc.toObject(), unreadCount });
+      }
     } catch (emitErr) {
       console.error("[NOTIF] socket emit (created) failed:", emitErr.message);
     }
@@ -176,8 +187,20 @@ const notifyPasswordChanged = (userId) =>
 async function notifyAdmins(payload) {
   try {
     const admins = await User.find({ role: "admin" }).select("_id").lean();
+    // Bulk-filter category opt-outs in ONE query instead of a per-admin
+    // preference read inside createNotification (same pattern as the campaign
+    // fan-out — hence respectPreferences: false below). Fail-open like the
+    // per-user path: a filter error keeps every recipient.
+    const category =
+      payload.category || NOTIFICATION_CATALOG[payload.type]?.category || "system";
+    const recipientIds = await filterInAppEnabled(
+      admins.map((a) => a._id),
+      category
+    );
     return Promise.all(
-      admins.map((a) => createNotification({ ...payload, userId: a._id }))
+      recipientIds.map((id) =>
+        createNotification({ ...payload, userId: id, respectPreferences: false })
+      )
     );
   } catch (err) {
     console.error("[NOTIF] notifyAdmins failed:", err.message);
@@ -242,6 +265,102 @@ const notifyQuoteRevised = (booking) =>
     metadata: { bookingId: booking._id, bookingRef: booking.bookingId, service: booking.service },
   });
 
+// ── Service cancellation notifications ─────────────────────────────────────────
+// `cancellation` is the booking.cancellation sub-doc; `windowLabel` the human
+// window name (e.g. "Late Cancellation") resolved by the controller.
+//
+// Fee wording is driven by the recorded paymentStatus — never inferred from the
+// fee amount alone. A fee may exist but be waived by configuration
+// (requirePaymentBeforeCancellation=false): the customer was NOT charged, and
+// the message must never claim otherwise.
+
+/** True when the cancellation fee was actually collected / actually waived. */
+const feeWasPaid = (c) =>
+  c?.fee > 0 && c?.paymentStatus === CANCELLATION_PAYMENT_STATUSES.PAID;
+const feeWasWaived = (c) =>
+  c?.fee > 0 && c?.paymentStatus === CANCELLATION_PAYMENT_STATUSES.WAIVED;
+
+const notifyBookingCancelled = (booking, cancellation) =>
+  createNotification({
+    userId: booking.userId,
+    type: "booking_cancelled",
+    title: "Booking Cancelled",
+    message:
+      `Your ${booking.service} booking has been cancelled successfully.` +
+      (feeWasPaid(cancellation)
+        ? ` A cancellation fee of ₹${cancellation.fee.toLocaleString("en-IN")} was charged.`
+        : feeWasWaived(cancellation)
+        ? ` The cancellation fee of ₹${cancellation.fee.toLocaleString("en-IN")} was waived — you have not been charged.`
+        : ""),
+    link: "/my-bookings",
+    metadata: {
+      bookingId: booking._id,
+      bookingRef: booking.bookingId,
+      service: booking.service,
+      reason: cancellation?.reason || "",
+      fee: cancellation?.fee || 0,
+      paymentStatus:
+        cancellation?.paymentStatus || CANCELLATION_PAYMENT_STATUSES.NOT_REQUIRED,
+    },
+  });
+
+const notifyBookingCancelledAdmins = (booking, cancellation, windowLabel) =>
+  notifyAdmins({
+    type: "booking_cancelled",
+    title: "Booking Cancelled by Customer",
+    message:
+      `Customer cancelled the ${booking.service} booking` +
+      (booking.bookingId ? ` (${booking.bookingId})` : "") +
+      `. Reason: ${cancellation.reason}` +
+      (cancellation.comment ? ` — "${cancellation.comment}"` : "") +
+      (windowLabel ? `. Window: ${windowLabel}` : "") +
+      (feeWasPaid(cancellation)
+        ? `. Fee collected: ₹${cancellation.fee.toLocaleString("en-IN")}`
+        : feeWasWaived(cancellation)
+        ? `. Fee waived: ₹${cancellation.fee.toLocaleString("en-IN")} (not charged)`
+        : ""),
+    metadata: {
+      bookingId: booking._id,
+      bookingRef: booking.bookingId,
+      service: booking.service,
+      reason: cancellation.reason,
+      comment: cancellation.comment || "",
+      window: cancellation.window,
+      fee: cancellation.fee || 0,
+      paymentStatus:
+        cancellation?.paymentStatus || CANCELLATION_PAYMENT_STATUSES.NOT_REQUIRED,
+    },
+  });
+
+const notifyCancellationFeePaid = (booking, payment) =>
+  createNotification({
+    userId: booking.userId,
+    type: "payment_successful",
+    title: "Cancellation Fee Paid",
+    message:
+      `Payment of ₹${payment.amount.toLocaleString("en-IN")} received for cancelling ` +
+      `your ${booking.service} booking.`,
+    link: "/my-bookings",
+    metadata: {
+      bookingId: booking._id,
+      bookingRef: booking.bookingId,
+      paymentId: payment._id,
+      amount: payment.amount,
+    },
+  });
+
+const notifyCancellationFeeFailed = (booking, amount) =>
+  createNotification({
+    userId: booking.userId,
+    type: "payment_failed",
+    title: "Cancellation Fee Payment Failed",
+    message:
+      `Payment of ₹${amount.toLocaleString("en-IN")} for cancelling your ` +
+      `${booking.service} booking failed. The booking is still active.`,
+    link: "/my-bookings",
+    metadata: { bookingId: booking._id, bookingRef: booking.bookingId, amount },
+  });
+
 const notifyWelcome = (userId, name) =>
   createNotification({
     userId,
@@ -264,4 +383,8 @@ module.exports = {
   notifyRevisionRequested,
   notifyRequestClosed,
   notifyQuoteRevised,
+  notifyBookingCancelled,
+  notifyBookingCancelledAdmins,
+  notifyCancellationFeePaid,
+  notifyCancellationFeeFailed,
 };

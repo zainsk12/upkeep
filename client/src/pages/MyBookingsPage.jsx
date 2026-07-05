@@ -8,7 +8,7 @@ import {
   Phone, AlertCircle, Star, X, MessageSquare, CheckCircle2,
   IndianRupee, UserCheck, ThumbsDown, Info,
   ShieldCheck, CalendarClock, XCircle, FileEdit, Archive,
-  History, ChevronDown,
+  History, ChevronDown, CalendarX, AlertTriangle, CreditCard,
   Zap, Droplets, Sparkles, Wind, Paintbrush2, Bug, Wrench,
 } from "lucide-react";
 import { toast } from "../utils/toast";
@@ -18,6 +18,9 @@ import {
   rejectBooking,
   requestQuoteRevision,
   closeBookingRequest,
+  getCancellationPreview,
+  payCancellationFee,
+  cancelBooking,
 } from "../services/bookingApi";
 import { executeRecaptcha } from "../services/recaptcha";
 import RescheduleModal from "../components/RescheduleModal";
@@ -114,9 +117,6 @@ const ACTIVE_STATUSES = [
   "awaiting_user_confirmation", "quote_rejected", "revision_requested", "pending", "confirmed",
 ];
 
-/* Statuses that allow rescheduling (must mirror bookingController.js) */
-const RESCHEDULABLE_STATUSES = ["pending", "awaiting_user_confirmation", "confirmed"];
-
 /* The collapsible archive sections */
 const ARCHIVE_SECTIONS = [
   { key: "completed", label: "Completed", dot: "bg-emerald-500", accent: "text-emerald-600", emptyMessage: "No completed bookings yet" },
@@ -133,6 +133,13 @@ const REJECTION_REASONS = [
   "Need a revised quotation",
   "Other",
 ];
+
+/* NOTE: which bookings may be cancelled / rescheduled is decided by the
+   server — every booking payload carries `canCancel` / `canReschedule` flags
+   (Booking model virtuals), and cancellation reasons come from the preview
+   endpoint. Nothing workflow-related is mirrored here. */
+
+const SUPPORT_EMAIL = "upkeep.austrum@gmail.com";
 
 
 
@@ -339,6 +346,117 @@ function QuotationDisclaimer() {
   );
 }
 
+/* ─── Shared workflow-modal building blocks ──
+   The Reject Quote and Cancel Booking modals share the same shell, header and
+   reason-picker markup — defined once here, styled per workflow via accent. */
+
+/* Overlay + card. Click-outside closes unless a request is in flight. */
+function WorkflowModalShell({ onClose, busy, children }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+      style={{ background: "rgba(11,29,58,0.55)", backdropFilter: "blur(6px)" }}
+      onClick={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}
+    >
+      <div
+        className="bg-card w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col"
+        style={{ boxShadow: "0 24px 64px rgba(8,53,74,0.18), 0 4px 16px rgba(0,0,0,0.08)" }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/* Primary-coloured header bar with tagline, title and close button. */
+function WorkflowModalHeader({ tagline, title, onClose, disabled }) {
+  return (
+    <div className="bg-primary dark:bg-primary-dark px-5 sm:px-6 py-4 sm:py-5 flex items-center justify-between flex-shrink-0">
+      <div>
+        <p className="text-white/60 text-xs font-medium uppercase tracking-widest">{tagline}</p>
+        <h2 className="text-white font-bold text-base sm:text-lg leading-tight">{title}</h2>
+      </div>
+      <button
+        onClick={onClose}
+        disabled={disabled}
+        className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors disabled:opacity-50"
+        aria-label="Close"
+      >
+        <X size={16} className="text-white" />
+      </button>
+    </div>
+  );
+}
+
+/* Full literal class strings per accent — Tailwind JIT cannot see dynamically
+   assembled class names, so these must never be templated. */
+const REASON_ACCENTS = {
+  rose: {
+    selected: "border-rose-400 bg-rose-50 dark:bg-rose-900/20 text-rose-700 dark:text-rose-300 font-semibold",
+    idle:     "border-border text-text hover:border-rose-200 hover:bg-bg",
+    dot:      "border-rose-500",
+    dotFill:  "bg-rose-500",
+    focus:    "focus:ring-rose-500/20 focus:border-rose-400/60",
+  },
+  red: {
+    selected: "border-red-400 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 font-semibold",
+    idle:     "border-border text-text hover:border-red-200 hover:bg-bg",
+    dot:      "border-red-500",
+    dotFill:  "bg-red-500",
+    focus:    "focus:ring-red-500/20 focus:border-red-400/60",
+  },
+};
+
+/* Radio-style reason list + conditional "Tell us more" textarea (reason
+   "Other"). Purely controlled — validation stays in the owning modal. */
+function ReasonPicker({ label, reasons, value, onSelect, comment, onCommentChange, accent }) {
+  const a = REASON_ACCENTS[accent];
+  return (
+    <>
+      <label className="text-sm font-semibold text-text flex items-center gap-1.5 -mb-1">
+        <MessageSquare size={13} className="text-primary" />
+        {label} <span className="text-red-400">*</span>
+      </label>
+      <div className="flex flex-col gap-2">
+        {reasons.map((r) => (
+          <button
+            key={r}
+            type="button"
+            onClick={() => onSelect(r)}
+            className={`flex items-center gap-3 px-4 py-3 rounded-xl border text-sm text-left transition-all
+              ${value === r ? a.selected : a.idle}`}
+          >
+            <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0
+              ${value === r ? a.dot : "border-border"}`}
+            >
+              {value === r && <span className={`w-2 h-2 rounded-full ${a.dotFill}`} />}
+            </span>
+            {r}
+          </button>
+        ))}
+      </div>
+      {value === "Other" && (
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm font-semibold text-text">
+            Tell us more <span className="text-red-400">*</span>
+          </label>
+          <textarea
+            value={comment}
+            onChange={(e) => onCommentChange(e.target.value)}
+            rows={3}
+            maxLength={500}
+            placeholder="Please describe your reason…"
+            className={`w-full px-4 py-3 rounded-xl border border-border text-sm resize-none
+              focus:outline-none focus:ring-2 ${a.focus}
+              transition-all bg-bg hover:bg-card placeholder:text-muted text-text`}
+            autoFocus
+          />
+        </div>
+      )}
+    </>
+  );
+}
+
 /* ─── Reject quote modal (two-step: confirm → reason) ── */
 function RejectQuoteModal({ booking, onClose, onSubmit, loading }) {
   const [step,    setStep]    = useState(1);
@@ -351,15 +469,7 @@ function RejectQuoteModal({ booking, onClose, onSubmit, loading }) {
   const canSubmit    = !!reason && (!needsComment || comment.trim().length > 0);
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
-      style={{ background: "rgba(11,29,58,0.55)", backdropFilter: "blur(6px)" }}
-      onClick={(e) => { if (e.target === e.currentTarget && !loading) onClose(); }}
-    >
-      <div
-        className="bg-card w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col"
-        style={{ boxShadow: "0 24px 64px rgba(8,53,74,0.18), 0 4px 16px rgba(0,0,0,0.08)" }}
-      >
+    <WorkflowModalShell onClose={onClose} busy={loading}>
         {step === 1 ? (
           /* ── Step 1: confirmation ── */
           <div className="flex flex-col items-center pt-8 pb-6 px-6">
@@ -394,64 +504,22 @@ function RejectQuoteModal({ booking, onClose, onSubmit, loading }) {
         ) : (
           /* ── Step 2: rejection reason ── */
           <>
-            <div className="bg-primary dark:bg-primary-dark px-5 sm:px-6 py-4 sm:py-5 flex items-center justify-between flex-shrink-0">
-              <div>
-                <p className="text-white/60 text-xs font-medium uppercase tracking-widest">Reject quotation</p>
-                <h2 className="text-white font-bold text-base sm:text-lg leading-tight">{booking.service}</h2>
-              </div>
-              <button
-                onClick={onClose}
-                disabled={loading}
-                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors disabled:opacity-50"
-                aria-label="Close"
-              >
-                <X size={16} className="text-white" />
-              </button>
-            </div>
+            <WorkflowModalHeader
+              tagline="Reject quotation"
+              title={booking.service}
+              onClose={onClose}
+              disabled={loading}
+            />
             <div className="p-5 sm:p-6 flex flex-col gap-4 overflow-y-auto">
-              <label className="text-sm font-semibold text-text flex items-center gap-1.5 -mb-1">
-                <MessageSquare size={13} className="text-primary" />
-                Why are you rejecting this quote? <span className="text-red-400">*</span>
-              </label>
-              <div className="flex flex-col gap-2">
-                {REJECTION_REASONS.map((r) => (
-                  <button
-                    key={r}
-                    type="button"
-                    onClick={() => setReason(r)}
-                    className={`flex items-center gap-3 px-4 py-3 rounded-xl border text-sm text-left transition-all
-                      ${reason === r
-                        ? "border-rose-400 bg-rose-50 dark:bg-rose-900/20 text-rose-700 dark:text-rose-300 font-semibold"
-                        : "border-border text-text hover:border-rose-200 hover:bg-bg"
-                      }`}
-                  >
-                    <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0
-                      ${reason === r ? "border-rose-500" : "border-border"}`}
-                    >
-                      {reason === r && <span className="w-2 h-2 rounded-full bg-rose-500" />}
-                    </span>
-                    {r}
-                  </button>
-                ))}
-              </div>
-              {needsComment && (
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-semibold text-text">
-                    Tell us more <span className="text-red-400">*</span>
-                  </label>
-                  <textarea
-                    value={comment}
-                    onChange={(e) => setComment(e.target.value)}
-                    rows={3}
-                    maxLength={500}
-                    placeholder="Please describe your reason…"
-                    className="w-full px-4 py-3 rounded-xl border border-border text-sm resize-none
-                      focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-400/60
-                      transition-all bg-bg hover:bg-card placeholder:text-muted text-text"
-                    autoFocus
-                  />
-                </div>
-              )}
+              <ReasonPicker
+                label="Why are you rejecting this quote?"
+                reasons={REJECTION_REASONS}
+                value={reason}
+                onSelect={setReason}
+                comment={comment}
+                onCommentChange={setComment}
+                accent="rose"
+              />
               <div className="flex gap-3 pt-1">
                 <button
                   type="button"
@@ -479,8 +547,7 @@ function RejectQuoteModal({ booking, onClose, onSubmit, loading }) {
             </div>
           </>
         )}
-      </div>
-    </div>
+    </WorkflowModalShell>
   );
 }
 
@@ -534,6 +601,382 @@ function CloseRequestModal({ booking, onClose, onConfirm, loading }) {
         </div>
       </div>
     </div>
+  );
+}
+
+/* ─── Cancel booking modal (window-aware, multi-step) ──
+   Steps: confirm (window-specific warning) → reason → pay (charge window only).
+   The window/fee shown come from the server preview endpoint; the final cancel
+   call re-validates everything server-side. */
+function CancelBookingModal({ booking, onClose, onCancelled }) {
+  const [preview,    setPreview]    = useState(null);   // server cancellation context
+  const [loadError,  setLoadError]  = useState(null);
+  const [step,       setStep]       = useState("confirm"); // confirm | reason | pay
+  const [reason,     setReason]     = useState("");
+  const [comment,    setComment]    = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const fetchPreview = useCallback(async () => {
+    setLoadError(null);
+    try {
+      const res = await getCancellationPreview(booking._id);
+      setPreview(res.data);
+    } catch (err) {
+      setLoadError(err?.response?.data?.message || "Failed to load cancellation details.");
+    }
+  }, [booking._id]);
+
+  useEffect(() => { fetchPreview(); }, [fetchPreview]);
+
+  const reasons      = preview?.reasons || [];
+  const needsComment = reason === "Other";
+  const canSubmitReason = !!reason && (!needsComment || comment.trim().length > 0);
+  // Inside the charge window (drives the fee warning UI)…
+  const feeApplies = preview?.allowed && preview.window === "fee_required" && preview.fee > 0;
+  // …but the payment step only runs when the server says payment is required
+  // (requirePaymentBeforeCancellation may waive it).
+  const needsPaymentStep = feeApplies && preview.requiresPayment !== false;
+
+  // No-fee path: reason step submits the cancellation directly.
+  const handleCancelNoFee = async () => {
+    setSubmitting(true);
+    try {
+      const res = await cancelBooking(booking._id, { reason, comment: comment.trim() });
+      toast.success(res.data.message || "Booking cancelled.");
+      onCancelled(res.data.booking);
+    } catch (err) {
+      if (err?.response?.status === 402) {
+        // The booking slipped into the charge window while the modal was open —
+        // update the fee from the server response and route through payment.
+        setPreview((p) => ({
+          ...p,
+          window: "fee_required",
+          fee: err.response.data.fee,
+          requiresPayment: true,
+        }));
+        setStep("pay");
+        toast.error("A cancellation fee now applies — please review before continuing.");
+      } else {
+        toast.error(err?.response?.data?.message || "Failed to cancel the booking.");
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Charge-window path: collect the fee, then finalise the cancellation.
+  // If payment fails the booking stays active and nothing else happens.
+  const handlePayAndCancel = async () => {
+    setSubmitting(true);
+    let paymentId = null;
+    try {
+      const payRes = await payCancellationFee(booking._id);
+      paymentId = payRes.data.payment.id;
+    } catch (err) {
+      toast.error(
+        err?.response?.data?.message ||
+        "Payment failed. Your booking has not been cancelled."
+      );
+      setSubmitting(false);
+      return;
+    }
+    try {
+      const res = await cancelBooking(booking._id, {
+        reason, comment: comment.trim(), paymentId,
+      });
+      toast.success(res.data.message || "Booking cancelled.");
+      onCancelled(res.data.booking);
+    } catch (err) {
+      toast.error(
+        err?.response?.data?.message ||
+        "Something went wrong after payment. Please contact support."
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  /* ── Shared shell ── */
+  return (
+    <WorkflowModalShell onClose={onClose} busy={submitting}>
+        {/* ── Loading / load-error / blocked states ── */}
+        {!preview && !loadError && (
+          <div className="flex flex-col items-center justify-center py-16 px-6 gap-3">
+            <span className="inline-block w-6 h-6 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+            <p className="text-muted text-sm">Checking cancellation details…</p>
+          </div>
+        )}
+
+        {loadError && (
+          <div className="flex flex-col items-center pt-8 pb-6 px-6">
+            <div className="w-14 h-14 rounded-full bg-red-50 dark:bg-red-900/20 border-2 border-red-200 dark:border-red-800/40 flex items-center justify-center mb-4">
+              <AlertCircle size={24} className="text-red-500" />
+            </div>
+            <p className="text-muted text-sm text-center leading-relaxed">{loadError}</p>
+            <div className="flex gap-3 w-full mt-6">
+              <button
+                onClick={onClose}
+                className="flex-1 px-4 py-3 rounded-xl border border-border text-muted hover:bg-bg text-sm font-semibold transition-all"
+              >
+                Close
+              </button>
+              <button
+                onClick={fetchPreview}
+                className="flex-1 px-4 py-3 rounded-xl bg-primary hover:bg-primary-hover text-white text-sm font-bold transition-all"
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        )}
+
+        {preview && !preview.allowed && (
+          <div className="flex flex-col items-center pt-8 pb-6 px-6">
+            <div className="w-14 h-14 rounded-full bg-slate-100 dark:bg-slate-800/60 border-2 border-slate-200 dark:border-slate-700 flex items-center justify-center mb-4">
+              <Info size={24} className="text-slate-500" />
+            </div>
+            <h2 className="text-text font-bold text-lg text-center leading-tight">
+              Cancellation Not Available
+            </h2>
+            <p className="text-muted text-sm text-center mt-2 leading-relaxed">{preview.message}</p>
+            {preview.code === "support" && (
+              <a
+                href={`mailto:${SUPPORT_EMAIL}`}
+                className="mt-4 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary
+                  hover:bg-primary-hover text-white text-sm font-semibold transition-all"
+              >
+                Contact Support
+              </a>
+            )}
+            <button
+              onClick={onClose}
+              className="w-full mt-5 px-4 py-3 rounded-xl border border-border text-muted hover:bg-bg text-sm font-semibold transition-all"
+            >
+              Close
+            </button>
+          </div>
+        )}
+
+        {/* ── Step 1: window-specific confirmation ── */}
+        {preview?.allowed && step === "confirm" && (
+          <div className="flex flex-col items-center pt-8 pb-6 px-6 overflow-y-auto">
+            <div className={`w-14 h-14 rounded-full border-2 flex items-center justify-center mb-4
+              ${feeApplies
+                ? "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800/40"
+                : preview.window === "late_warning"
+                ? "bg-rose-50 dark:bg-rose-900/20 border-rose-200 dark:border-rose-800/40"
+                : preview.window === "early_warning"
+                ? "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800/40"
+                : "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800/40"}`}
+            >
+              {feeApplies
+                ? <IndianRupee size={24} className="text-red-500" />
+                : preview.window === "late_warning" || preview.window === "early_warning"
+                ? <AlertTriangle size={24} className={preview.window === "late_warning" ? "text-rose-500" : "text-amber-500"} />
+                : <CalendarX size={24} className="text-red-500" />
+              }
+            </div>
+
+            <h2 className="text-text font-bold text-lg text-center leading-tight">
+              {feeApplies
+                ? "Cancellation Charge Applies"
+                : preview.window === "late_warning"
+                ? "Late Cancellation Warning"
+                : "Cancel this booking?"}
+            </h2>
+
+            {/* Free window */}
+            {preview.window === "free" && (
+              <p className="text-muted text-sm text-center mt-2 leading-relaxed">
+                Your <span className="font-semibold text-text">{booking.service}</span> booking
+                will be cancelled. No cancellation fee applies.
+              </p>
+            )}
+
+            {/* 24h → 4h: courtesy warning */}
+            {preview.window === "early_warning" && (
+              <div className="mt-3 w-full rounded-xl bg-amber-50 dark:bg-amber-900/15 border border-amber-200 dark:border-amber-700/40 px-4 py-3">
+                <p className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
+                  Please cancel only if necessary. Early cancellation helps us efficiently
+                  allocate technicians and serve other customers.
+                </p>
+              </div>
+            )}
+
+            {/* 4h → 2h: strong warning */}
+            {preview.window === "late_warning" && (
+              <div className="mt-3 w-full rounded-xl bg-rose-50 dark:bg-rose-900/15 border border-rose-200 dark:border-rose-700/40 px-4 py-3 space-y-2">
+                <p className="text-xs text-rose-800 dark:text-rose-300 leading-relaxed">
+                  Your technician has likely reserved this time slot and may have declined
+                  other bookings.
+                </p>
+                <p className="text-xs text-rose-800 dark:text-rose-300 leading-relaxed">
+                  Frequent late cancellations may reduce your booking priority during
+                  high-demand periods.
+                </p>
+                <p className="text-xs font-semibold text-rose-800 dark:text-rose-300 leading-relaxed">
+                  Please cancel only if absolutely necessary.
+                </p>
+              </div>
+            )}
+
+            {/* < 2h: fee breakdown */}
+            {feeApplies && (
+              <>
+                <p className="text-muted text-sm text-center mt-2 leading-relaxed">
+                  Your technician has already reserved this slot and preparations for your
+                  service are likely complete. Cancelling now requires payment of a
+                  cancellation fee before the booking can be cancelled.
+                </p>
+                <div className="mt-4 w-full rounded-xl border border-red-200 dark:border-red-800/40 overflow-hidden">
+                  <div className="px-4 py-2.5 space-y-1.5 bg-red-50/60 dark:bg-red-900/10">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted">Approved Quote</span>
+                      <span className="text-text font-medium">₹{preview.quoteTotal?.toLocaleString("en-IN")}</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted">
+                        Fee ({preview.rules?.cancellationFeePercent ?? 20}% · min ₹
+                        {(preview.rules?.minimumCancellationFee ?? 100).toLocaleString("en-IN")})
+                      </span>
+                      <span className="text-text font-medium">₹{preview.fee.toLocaleString("en-IN")}</span>
+                    </div>
+                  </div>
+                  <div className="px-4 py-2.5 bg-red-600 flex items-center justify-between">
+                    <span className="text-white/80 text-xs font-medium">Cancellation Fee</span>
+                    <span className="text-white font-bold text-base">
+                      ₹{preview.fee.toLocaleString("en-IN")}
+                    </span>
+                  </div>
+                </div>
+              </>
+            )}
+
+            <div className="flex gap-3 w-full mt-6">
+              <button
+                onClick={onClose}
+                className="flex-1 px-4 py-3 rounded-xl border border-border text-muted hover:bg-bg text-sm font-semibold transition-all"
+              >
+                Keep Booking
+              </button>
+              <button
+                onClick={() => setStep("reason")}
+                className="flex-1 flex items-center justify-center gap-1.5 px-4 py-3 rounded-xl
+                  bg-red-600 hover:bg-red-700 text-white text-sm font-bold
+                  transition-all shadow-md shadow-red-600/25"
+              >
+                <CalendarX size={14} />
+                Continue
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Step 2: cancellation reason ── */}
+        {preview?.allowed && step === "reason" && (
+          <>
+            <WorkflowModalHeader
+              tagline="Cancel booking"
+              title={booking.service}
+              onClose={onClose}
+              disabled={submitting}
+            />
+            <div className="p-5 sm:p-6 flex flex-col gap-4 overflow-y-auto">
+              <ReasonPicker
+                label="Why are you cancelling?"
+                reasons={reasons}
+                value={reason}
+                onSelect={setReason}
+                comment={comment}
+                onCommentChange={setComment}
+                accent="red"
+              />
+              <div className="flex gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setStep("confirm")}
+                  disabled={submitting}
+                  className="flex-1 px-4 py-3 rounded-xl border border-border text-muted hover:bg-bg text-sm font-semibold transition-all disabled:opacity-50"
+                >
+                  Back
+                </button>
+                <button
+                  type="button"
+                  onClick={() => (needsPaymentStep ? setStep("pay") : handleCancelNoFee())}
+                  disabled={submitting || !canSubmitReason}
+                  className="flex-[2] flex items-center justify-center gap-2 px-4 py-3 rounded-xl
+                    bg-red-600 hover:bg-red-700 text-white text-sm font-bold
+                    transition-all shadow-md shadow-red-600/25
+                    disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {submitting
+                    ? <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    : needsPaymentStep
+                    ? <><CreditCard size={14} /> Continue to Payment</>
+                    : <><CalendarX size={14} /> Cancel Booking</>
+                  }
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ── Step 3: cancellation fee payment (charge window only) ── */}
+        {preview?.allowed && step === "pay" && (
+          <div className="flex flex-col items-center pt-8 pb-6 px-6 overflow-y-auto">
+            <div className="w-14 h-14 rounded-full bg-red-50 dark:bg-red-900/20 border-2 border-red-200 dark:border-red-800/40 flex items-center justify-center mb-4">
+              <CreditCard size={24} className="text-red-500" />
+            </div>
+            <h2 className="text-text font-bold text-lg text-center leading-tight">
+              Pay Cancellation Fee
+            </h2>
+            <p className="text-muted text-sm text-center mt-2 leading-relaxed">
+              Your booking is cancelled only after the payment succeeds. If the
+              payment fails, your booking stays active.
+            </p>
+            <div className="mt-4 w-full rounded-xl border border-red-200 dark:border-red-800/40 overflow-hidden">
+              <div className="px-4 py-2.5 bg-red-50/60 dark:bg-red-900/10 flex justify-between text-xs">
+                <span className="text-muted">Reason</span>
+                <span className="text-text font-medium">{reason}</span>
+              </div>
+              <div className="px-4 py-2.5 bg-red-600 flex items-center justify-between">
+                <span className="text-white/80 text-xs font-medium">Cancellation Fee</span>
+                <span className="text-white font-bold text-base">
+                  ₹{preview.fee?.toLocaleString("en-IN")}
+                </span>
+              </div>
+            </div>
+            <div className="flex gap-3 w-full mt-6">
+              <button
+                onClick={() => setStep("reason")}
+                disabled={submitting}
+                className="flex-1 px-4 py-3 rounded-xl border border-border text-muted hover:bg-bg text-sm font-semibold transition-all disabled:opacity-50"
+              >
+                Back
+              </button>
+              <button
+                onClick={handlePayAndCancel}
+                disabled={submitting}
+                className="flex-[2] flex items-center justify-center gap-2 px-4 py-3 rounded-xl
+                  bg-red-600 hover:bg-red-700 text-white text-sm font-bold
+                  transition-all shadow-md shadow-red-600/25 disabled:opacity-60"
+              >
+                {submitting
+                  ? <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  : <>
+                      <CreditCard size={14} />
+                      Pay ₹{preview.fee?.toLocaleString("en-IN")} &amp; Cancel
+                    </>
+                }
+              </button>
+            </div>
+            <p className="text-xs text-muted flex items-center gap-1.5 mt-4">
+              <ShieldCheck size={11} className="text-red-400 flex-shrink-0" />
+              Secure payment. No outstanding dues are ever created.
+            </p>
+          </div>
+        )}
+    </WorkflowModalShell>
   );
 }
 
@@ -699,6 +1142,21 @@ function BookingTimeline({ booking }) {
                       Reason: {ev.meta.reason}
                     </p>
                   )}
+                  {ev.meta?.windowLabel && ev.meta.windowLabel !== "Free Cancellation" && (
+                    <p className="text-[11px] text-muted italic mt-0.5">
+                      {ev.meta.windowLabel}
+                    </p>
+                  )}
+                  {ev.meta?.fee > 0 && (
+                    <p className="text-[11px] text-muted mt-0.5">
+                      Cancellation fee: ₹{ev.meta.fee.toLocaleString("en-IN")}
+                    </p>
+                  )}
+                  {ev.event === "cancellation_fee_paid" && ev.meta?.amount > 0 && (
+                    <p className="text-[11px] text-muted mt-0.5">
+                      Amount: ₹{ev.meta.amount.toLocaleString("en-IN")}
+                    </p>
+                  )}
                 </li>
               );
             })}
@@ -822,14 +1280,17 @@ function WorkerStrip({ booking }) {
 /* ─── Booking card ── */
 function BookingCard({
   booking, isReviewed, onLeaveReview, onAcceptClick, onReject,
-  onRequestRevision, onCloseRequest, onReschedule, actionLoading, workflowLoading,
+  onRequestRevision, onCloseRequest, onReschedule, onCancelBooking,
+  actionLoading, workflowLoading,
 }) {
   const svc        = getServiceMeta(booking.service);
   const Icon       = svc.icon;
   const isCompleted = booking.status === "completed";
   const isAwaiting  = booking.status === "awaiting_user_confirmation";
   const isRejected  = booking.status === "quote_rejected";
-  const canReschedule = RESCHEDULABLE_STATUSES.includes(booking.status);
+  // Server-authoritative capability flags (Booking model virtuals).
+  const canReschedule = !!booking.canReschedule;
+  const canCancel     = !!booking.canCancel;
   const statusCfg   = STATUS_CONFIG[booking.status] || STATUS_CONFIG.pending;
 
   return (
@@ -974,25 +1435,49 @@ function BookingCard({
                 Leave a Review
               </button>
             )}
+            {/* Completed services can't be cancelled — guide toward support. */}
+            <p className="text-xs text-muted mt-2.5 leading-relaxed">
+              Something not right with this service?{" "}
+              <a
+                href={`mailto:${SUPPORT_EMAIL}`}
+                className="text-primary font-medium hover:underline"
+              >
+                Contact support
+              </a>
+            </p>
           </div>
         )}
 
         {/* Activity timeline */}
         <BookingTimeline booking={booking} />
 
-        {/* Reschedule button (active bookings only) */}
-        {canReschedule && (
-          <div className="pt-3 mt-1 border-t border-border">
-            <button
-              onClick={() => onReschedule(booking)}
-              className="w-full flex items-center justify-center gap-1.5 py-2.5 px-4
-                rounded-xl border border-border text-muted text-xs font-semibold
-                hover:border-primary/40 hover:text-primary hover:bg-primary/5
-                transition-all duration-200"
-            >
-              <CalendarClock size={13} />
-              Reschedule
-            </button>
+        {/* Reschedule / cancel actions (active bookings only) */}
+        {(canReschedule || canCancel) && (
+          <div className="pt-3 mt-1 border-t border-border flex gap-2.5">
+            {canReschedule && (
+              <button
+                onClick={() => onReschedule(booking)}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 px-4
+                  rounded-xl border border-border text-muted text-xs font-semibold
+                  hover:border-primary/40 hover:text-primary hover:bg-primary/5
+                  transition-all duration-200"
+              >
+                <CalendarClock size={13} />
+                Reschedule
+              </button>
+            )}
+            {canCancel && (
+              <button
+                onClick={() => onCancelBooking(booking)}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 px-4
+                  rounded-xl border border-red-200 dark:border-red-800/40
+                  text-red-500 dark:text-red-400 text-xs font-semibold
+                  hover:bg-red-50 dark:hover:bg-red-900/20 transition-all duration-200"
+              >
+                <CalendarX size={13} />
+                Cancel Booking
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -1065,6 +1550,9 @@ export default function MyBookingsPage() {
   const [rejectSubmitting, setRejectSubmitting] = useState(false);
   const [closeModal,       setCloseModal]       = useState(null);  // booking object
   const [closeSubmitting,  setCloseSubmitting]  = useState(false);
+
+  // Service cancellation workflow state
+  const [cancelModal, setCancelModal] = useState(null); // booking object
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -1181,6 +1669,14 @@ export default function MyBookingsPage() {
     } finally {
       setCloseSubmitting(false);
     }
+  };
+
+  // Cancellation success (modal already handled payment/reason steps).
+  const handleBookingCancelled = (updatedBooking) => {
+    setBookings((prev) =>
+      prev.map((b) => (b._id === updatedBooking._id ? updatedBooking : b))
+    );
+    setCancelModal(null);
   };
 
   const handleReviewSuccess = (bookingId) => {
@@ -1301,6 +1797,7 @@ export default function MyBookingsPage() {
                       onRequestRevision={handleRequestRevision}
                       onCloseRequest={setCloseModal}
                       onReschedule={setRescheduleModal}
+                      onCancelBooking={setCancelModal}
                       actionLoading={confirming}
                       workflowLoading={revisionLoading}
                     />
@@ -1341,6 +1838,7 @@ export default function MyBookingsPage() {
                             onRequestRevision={handleRequestRevision}
                             onCloseRequest={setCloseModal}
                             onReschedule={setRescheduleModal}
+                            onCancelBooking={setCancelModal}
                             actionLoading={confirming}
                             workflowLoading={revisionLoading}
                           />
@@ -1391,6 +1889,15 @@ export default function MyBookingsPage() {
           onClose={() => setCloseModal(null)}
           onConfirm={handleCloseRequest}
           loading={closeSubmitting}
+        />
+      )}
+
+      {/* Cancel booking modal (window-aware: warnings / fee / payment) */}
+      {cancelModal && (
+        <CancelBookingModal
+          booking={cancelModal}
+          onClose={() => setCancelModal(null)}
+          onCancelled={handleBookingCancelled}
         />
       )}
     </div>

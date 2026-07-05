@@ -13,12 +13,32 @@ const {
   notifyQuoteRejected,
   notifyRevisionRequested,
   notifyRequestClosed,
+  notifyBookingCancelled,
+  notifyBookingCancelledAdmins,
+  notifyCancellationFeePaid,
+  notifyCancellationFeeFailed,
 } = require("../services/notificationService");
 const {
   REJECTION_REASONS,
+  RESCHEDULABLE_STATUSES,
   canTransition,
   pushHistory,
 } = require("../constants/quoteWorkflow");
+const {
+  CANCELLATION_REASONS,
+  SUPPORT_GUIDED_STATUSES,
+  CANCELLATION_PAYMENT_STATUSES,
+  computeCancellationContext,
+} = require("../constants/cancellationWorkflow");
+const { getHoursRemaining, hasSlotPassed } = require("../utils/scheduleTime");
+const { getCancellationRules } = require("../config/businessRules");
+const {
+  collectCancellationFee,
+  verifyCancellationFeePayment,
+  findReusableCancellationFeePayment,
+  consumePayment,
+} = require("../services/paymentService");
+const { PAYMENT_STATUS } = require("../models/Payment");
 
 // ── POST /api/bookings ─────────────────────────────────────────────────────────
 const createBooking = async (req, res) => {
@@ -365,6 +385,324 @@ const closeBookingRequest = async (req, res) => {
   }
 };
 
+// ── Service cancellation workflow ─────────────────────────────────────────────
+// State-driven customer cancellation. Behaviour depends on the booking status
+// and the time remaining until the scheduled slot (see constants/cancellation-
+// Workflow.js + config/businessRules.js). Three endpoints:
+//   GET  /:id/cancellation/preview — window/fee context to drive the UI
+//   POST /:id/cancellation/pay     — collect the fee (only when one applies)
+//   POST /:id/cancel               — finalise the cancellation
+
+/**
+ * Shared status guard for the cancellation endpoints. Returns a
+ * { code, message } descriptor when cancellation is impossible from the
+ * booking's current status, or null when the workflow may proceed.
+ */
+function cancellationBlocker(booking) {
+  if (booking.status === "cancelled") {
+    return { code: "already_cancelled", message: "This booking has already been cancelled." };
+  }
+  if (SUPPORT_GUIDED_STATUSES.includes(booking.status)) {
+    return {
+      code: "support",
+      message:
+        booking.status === "completed"
+          ? "Completed services cannot be cancelled. If something went wrong, please contact our support team and we'll make it right."
+          : "This service is already underway and can no longer be cancelled. Please contact our support team for help.",
+    };
+  }
+  if (booking.status === "closed") {
+    return { code: "closed", message: "This request is closed and cannot be cancelled." };
+  }
+  if (!canTransition(booking.status, "cancelled")) {
+    return { code: "invalid_stage", message: "This booking cannot be cancelled at its current stage." };
+  }
+  // Confirmed booking whose scheduled slot has already passed: this is no
+  // longer a cancellation (and must never incur a late-cancellation fee) —
+  // it belongs to support / the future no-show workflow. Earlier stages
+  // (pending / quote sent / rejected) stay cancellable free of charge even
+  // after the slot, so stale requests aren't stranded.
+  if (booking.status === "confirmed" && hasSlotPassed(booking)) {
+    return {
+      code: "support",
+      message:
+        "The scheduled time for this service has already passed, so it can no longer be cancelled online. Please contact our support team and we'll sort it out.",
+    };
+  }
+  return null;
+}
+
+// ── GET /api/bookings/:id/cancellation/preview ────────────────────────────────
+// Server-authoritative cancellation context for the client modal: whether
+// cancellation is allowed, which window applies, and the fee (if any).
+// Read-only — never mutates the booking. Blocked states return 200 with
+// allowed:false so the client can render guidance instead of an error toast.
+const getCancellationPreview = async (req, res) => {
+  try {
+    if (!isValidId(req.params.id))
+      return res.status(400).json({ message: "Invalid booking ID." });
+
+    const booking = await Booking.findById(req.params.id);
+    if (!booking) return res.status(404).json({ message: "Booking not found." });
+
+    if (booking.userId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: "Not authorised." });
+    }
+
+    const blocked = cancellationBlocker(booking);
+    if (blocked) {
+      return res.json({ allowed: false, ...blocked, reasons: CANCELLATION_REASONS });
+    }
+
+    const rules = await getCancellationRules();
+    const context = computeCancellationContext(booking, rules);
+
+    res.json({
+      allowed: true,
+      ...context,
+      reasons: CANCELLATION_REASONS,
+      // Surface the fee inputs so the UI can explain the calculation.
+      rules: {
+        cancellationFeePercent: rules.cancellationFeePercent,
+        minimumCancellationFee: rules.minimumCancellationFee,
+      },
+    });
+  } catch (err) {
+    console.error("getCancellationPreview error:", err.message);
+    res.status(500).json({ message: "Server error. Please try again." });
+  }
+};
+
+// ── POST /api/bookings/:id/cancellation/pay ───────────────────────────────────
+// Collects the cancellation fee when one applies. On success the booking is
+// STILL ACTIVE — the client immediately calls POST /:id/cancel with the
+// returned paymentId to finalise. On gateway failure nothing changes.
+const payCancellationFee = async (req, res) => {
+  try {
+    if (!isValidId(req.params.id))
+      return res.status(400).json({ message: "Invalid booking ID." });
+
+    const booking = await Booking.findById(req.params.id);
+    if (!booking) return res.status(404).json({ message: "Booking not found." });
+
+    if (booking.userId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: "Not authorised." });
+    }
+
+    const blocked = cancellationBlocker(booking);
+    if (blocked) return res.status(400).json({ message: blocked.message });
+
+    // Recompute server-side — the fee the customer saw in the preview may have
+    // drifted; the amount charged is always the one that applies right now.
+    const rules = await getCancellationRules();
+    const context = computeCancellationContext(booking, rules);
+    if (!context.requiresPayment || context.fee <= 0) {
+      return res.status(400).json({ message: "No cancellation fee is due for this booking." });
+    }
+
+    const payment = await collectCancellationFee({
+      booking,
+      userId: req.user._id,
+      amount: context.fee,
+    });
+
+    if (payment.status !== PAYMENT_STATUS.PAID) {
+      // Gateway declined — booking stays active, nothing else changes.
+      res.status(402).json({
+        message: "Payment failed. Your booking has not been cancelled — please try again.",
+        paymentStatus: "failed",
+      });
+      notifyCancellationFeeFailed(booking, context.fee).catch((e) =>
+        console.error("[NOTIF] payment_failed emit failed:", e.message)
+      );
+      return;
+    }
+
+    // Append-only ledger entry on the timeline — the fee was genuinely paid,
+    // even if the follow-up cancel call were to fail. A retried pay call may
+    // reuse an already-paid payment (idempotency), so don't log it twice.
+    const alreadyLogged = (booking.history || []).some(
+      (h) =>
+        h.event === "cancellation_fee_paid" &&
+        h.meta?.paymentId?.toString() === payment._id.toString()
+    );
+    if (!alreadyLogged) {
+      pushHistory(booking, "cancellation_fee_paid", "customer", {
+        amount: payment.amount,
+        paymentId: payment._id,
+      });
+      await booking.save();
+    }
+
+    res.json({
+      message: "Payment successful.",
+      payment: { id: payment._id, amount: payment.amount, status: payment.status },
+      fee: context.fee,
+    });
+
+    // Reused (already-notified) payments must not trigger a second notification.
+    if (!alreadyLogged) {
+      notifyCancellationFeePaid(booking, payment).catch((e) =>
+        console.error("[NOTIF] payment_successful emit failed:", e.message)
+      );
+    }
+  } catch (err) {
+    console.error("payCancellationFee error:", err.message);
+    res.status(500).json({ message: "Server error. Please try again." });
+  }
+};
+
+// ── POST /api/bookings/:id/cancel ─────────────────────────────────────────────
+// Finalises a customer cancellation. Requires { reason, comment? } (comment
+// mandatory when reason is "Other"), plus { paymentId } when the booking is
+// inside the charge window. All windows/fees are recomputed here — the server
+// at cancel time is the single source of truth, never the client.
+const cancelBooking = async (req, res) => {
+  try {
+    const { reason, comment, paymentId } = req.body || {};
+
+    // ── Reason validation ────────────────────────────────────────────────────
+    if (!reason || !CANCELLATION_REASONS.includes(reason)) {
+      return res.status(400).json({
+        message: "A valid cancellation reason is required.",
+        reasons: CANCELLATION_REASONS,
+      });
+    }
+    const trimmedComment = (comment || "").trim();
+    if (reason === "Other" && !trimmedComment) {
+      return res.status(400).json({
+        message: "Please describe your reason when selecting \"Other\".",
+      });
+    }
+    if (trimmedComment.length > 500) {
+      return res.status(400).json({
+        message: "Comment must be 500 characters or fewer.",
+      });
+    }
+
+    if (!isValidId(req.params.id))
+      return res.status(400).json({ message: "Invalid booking ID." });
+
+    const booking = await Booking.findById(req.params.id);
+    if (!booking) return res.status(404).json({ message: "Booking not found." });
+
+    // ── Ownership ────────────────────────────────────────────────────────────
+    if (booking.userId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: "Not authorised." });
+    }
+
+    // ── Status guards (invalid transitions are impossible past this point) ───
+    const blocked = cancellationBlocker(booking);
+    if (blocked) return res.status(400).json({ message: blocked.message, code: blocked.code });
+
+    // ── Window / fee resolution (authoritative, at cancel time) ─────────────
+    const rules = await getCancellationRules();
+    const context = computeCancellationContext(booking, rules);
+
+    let paymentStatus = CANCELLATION_PAYMENT_STATUSES.NOT_REQUIRED;
+    let consumedPayment = null;
+
+    if (context.fee > 0) {
+      if (!rules.requirePaymentBeforeCancellation) {
+        paymentStatus = CANCELLATION_PAYMENT_STATUSES.WAIVED;
+      } else {
+        const verdict = await verifyCancellationFeePayment({
+          paymentId,
+          bookingId: booking._id,
+          userId: req.user._id,
+          minAmount: context.fee,
+        });
+        if (verdict.ok) {
+          consumedPayment = verdict.payment;
+        } else {
+          // Recovery path: the fee may already have been paid but never
+          // applied (e.g. the client crashed between the pay and cancel
+          // calls and lost the paymentId). A paid-but-unconsumed payment for
+          // this booking is proof of payment — reuse it rather than leaving
+          // the customer stuck with a charged fee and an active booking.
+          consumedPayment = await findReusableCancellationFeePayment({
+            bookingId: booking._id,
+            userId: req.user._id,
+            minAmount: context.fee,
+          });
+        }
+        if (!consumedPayment) {
+          // No valid payment → booking stays active; tell the client to run
+          // (or re-run) the payment step with the current fee.
+          return res.status(402).json({
+            message: verdict.message,
+            paymentRequired: true,
+            fee: context.fee,
+            window: context.window,
+          });
+        }
+        paymentStatus = CANCELLATION_PAYMENT_STATUSES.PAID;
+      }
+    }
+
+    // ── Apply cancellation ───────────────────────────────────────────────────
+    const stage = booking.status; // status BEFORE the transition
+    booking.cancellation = {
+      reason,
+      comment: trimmedComment,
+      requestedAt: new Date(),
+      requestedBy: req.user._id,
+      cancelledBy: "customer",
+      stage,
+      timeRemaining: context.hoursRemaining,
+      window: context.window,
+      fee: context.fee,
+      paymentStatus,
+      paymentId: consumedPayment ? consumedPayment._id : null,
+    };
+    booking.status = "cancelled";
+    pushHistory(booking, "cancelled", "customer", {
+      reason,
+      comment: trimmedComment,
+      stage,
+      window: context.window,
+      windowLabel: context.windowLabel,
+      fee: context.fee,
+    });
+    await booking.save();
+
+    // Single-use: bind the payment to this completed cancellation. Compare-
+    // and-set so two racing cancel requests can never both claim it. Ordering
+    // matters: the booking is cancelled first — worst case (this write fails)
+    // is an unconsumed payment on an already-cancelled booking, which is
+    // harmless (it's bound to this booking and the blocker stops a re-cancel);
+    // the reverse order could consume the fee without cancelling anything.
+    if (consumedPayment) {
+      const claimed = await consumePayment(consumedPayment._id);
+      if (!claimed) {
+        console.warn(
+          `[PAYMENT] cancellation payment ${consumedPayment._id} was already consumed (booking ${booking._id})`
+        );
+      }
+    }
+
+    res.json({
+      message:
+        context.fee > 0 && paymentStatus === CANCELLATION_PAYMENT_STATUSES.PAID
+          ? "Cancellation fee received — your booking has been cancelled."
+          : "Booking cancelled successfully.",
+      booking,
+    });
+
+    // Fire-and-forget notifications: customer + all admins (the admin team is
+    // the vendor in this system — there is no separate vendor account).
+    notifyBookingCancelled(booking, booking.cancellation).catch((e) =>
+      console.error("[NOTIF] booking_cancelled (customer) emit failed:", e.message)
+    );
+    notifyBookingCancelledAdmins(booking, booking.cancellation, context.windowLabel).catch((e) =>
+      console.error("[NOTIF] booking_cancelled (admins) emit failed:", e.message)
+    );
+  } catch (err) {
+    console.error("cancelBooking error:", err.message);
+    res.status(500).json({ message: "Server error. Please try again." });
+  }
+};
+
 // ── PATCH /api/bookings/:id/reschedule ────────────────────────────────────────
 // Allows the booking owner to change the date and/or time of an active booking.
 // Restrictions:
@@ -375,8 +713,6 @@ const closeBookingRequest = async (req, res) => {
 //     away; rescheduling last-minute is not permitted.
 //     The threshold is resolved dynamically (Settings DB → env var → default 2h).
 //     Set to 0 to disable this check entirely.
-
-const RESCHEDULABLE_STATUSES = ["pending", "awaiting_user_confirmation", "confirmed"];
 
 const rescheduleBooking = async (req, res) => {
   try {
@@ -407,17 +743,16 @@ const rescheduleBooking = async (req, res) => {
     const minHours = await Settings.getRescheduleHours();
 
     if (minHours > 0) {
-      const { parseSlotToMinutes } = require("../utils/bookingValidation");
-      const existingDate = new Date(booking.date);
-      const slotMins = parseSlotToMinutes(booking.time);
-      if (slotMins !== -1) {
-        existingDate.setHours(Math.floor(slotMins / 60), slotMins % 60, 0, 0);
-        const hoursRemaining = (existingDate - new Date()) / (1000 * 60 * 60);
-        if (hoursRemaining >= 0 && hoursRemaining < minHours) {
-          return res.status(400).json({
-            message: `Bookings cannot be rescheduled within ${minHours} hours of the appointment.`,
-          });
-        }
+      // Shared scheduled-time math (utils/scheduleTime) — the same
+      // implementation the cancellation workflow uses, so the two windows can
+      // never disagree. null = unparsable legacy slot (guard skipped, as
+      // before); negative = slot already passed (rescheduling to a future
+      // date remains allowed, as before).
+      const hoursRemaining = getHoursRemaining(booking);
+      if (hoursRemaining !== null && hoursRemaining >= 0 && hoursRemaining < minHours) {
+        return res.status(400).json({
+          message: `Bookings cannot be rescheduled within ${minHours} hours of the appointment.`,
+        });
       }
     }
 
@@ -446,5 +781,8 @@ module.exports = {
   rejectBooking,
   requestQuoteRevision,
   closeBookingRequest,
+  getCancellationPreview,
+  payCancellationFee,
+  cancelBooking,
   rescheduleBooking,
 };

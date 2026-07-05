@@ -1,7 +1,17 @@
 // server/models/Booking.js
 
 const mongoose = require("mongoose");
-const { REJECTION_REASONS } = require("../constants/quoteWorkflow");
+const {
+  REJECTION_REASONS,
+  BOOKING_STATUSES,
+  RESCHEDULABLE_STATUSES,
+} = require("../constants/quoteWorkflow");
+const {
+  CANCELLATION_REASONS,
+  CANCELLATION_WINDOWS,
+  CANCELLABLE_STATUSES,
+  CANCELLATION_PAYMENT_STATUSES,
+} = require("../constants/cancellationWorkflow");
 
 /* ── Quotation breakdown sub-schema ───────────────────────────────────────────
    All line-item fields default to 0 so partial quotations are valid.
@@ -34,6 +44,44 @@ const rejectionSchema = new mongoose.Schema(
     comment:    { type: String, default: "", trim: true },
     rejectedAt: { type: Date, default: Date.now },
     rejectedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+  },
+  { _id: false }
+);
+
+/* ── Service cancellation sub-schema ──────────────────────────────────────────
+   Captured when a booking is cancelled through the customer cancellation
+   workflow. `reason` is one of the predefined CANCELLATION_REASONS; `comment`
+   carries free text (required when reason is "Other"). Snapshot fields record
+   the state the cancellation was evaluated in (stage / timeRemaining / window /
+   fee) so history stays auditable even if business rules change later.
+   Default null on the parent — fully backward compatible: legacy and
+   admin-cancelled bookings simply have no cancellation record.
+────────────────────────────────────────────────────────────────────────────── */
+const cancellationSchema = new mongoose.Schema(
+  {
+    reason:      { type: String, enum: CANCELLATION_REASONS, required: true },
+    comment:     { type: String, default: "", trim: true },
+    requestedAt: { type: Date, default: Date.now },
+    requestedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+    // Actor kind — "customer" today; future workflows may add worker/vendor.
+    cancelledBy: { type: String, enum: ["customer", "admin", "system"], default: "customer" },
+    // Booking status at the moment of cancellation (e.g. "confirmed").
+    stage:       { type: String, default: "", trim: true },
+    // Hours until the scheduled slot when cancellation was requested
+    // (negative = slot already passed; null = not computable/legacy).
+    timeRemaining: { type: Number, default: null },
+    window: {
+      type: String,
+      enum: Object.values(CANCELLATION_WINDOWS),
+      default: CANCELLATION_WINDOWS.FREE,
+    },
+    fee: { type: Number, default: 0, min: 0 },
+    paymentStatus: {
+      type: String,
+      enum: Object.values(CANCELLATION_PAYMENT_STATUSES),
+      default: CANCELLATION_PAYMENT_STATUSES.NOT_REQUIRED,
+    },
+    paymentId: { type: mongoose.Schema.Types.ObjectId, ref: "Payment", default: null },
   },
   { _id: false }
 );
@@ -147,18 +195,11 @@ const bookingSchema = new mongoose.Schema(
     //   quote_rejected     — customer rejected the quotation
     //   revision_requested — customer asked for a revised quotation
     //   closed             — customer closed the request after rejecting (terminal)
+    // Enum lives in constants/quoteWorkflow.js (BOOKING_STATUSES) — the single
+    // source of truth shared with the workflow transition maps.
     status: {
       type: String,
-      enum: [
-        "pending",
-        "awaiting_user_confirmation",
-        "quote_rejected",
-        "revision_requested",
-        "closed",
-        "confirmed",
-        "completed",
-        "cancelled",
-      ],
+      enum: BOOKING_STATUSES,
       default: "pending",
     },
 
@@ -171,6 +212,12 @@ const bookingSchema = new mongoose.Schema(
     // ── Quote rejection details (null until the customer rejects) ─────────────
     rejection: {
       type: rejectionSchema,
+      default: null,
+    },
+
+    // ── Cancellation details (null until cancelled via the customer flow) ─────
+    cancellation: {
+      type: cancellationSchema,
       default: null,
     },
 
@@ -231,5 +278,21 @@ bookingSchema.index({ bookingId: 1 }, { unique: true, sparse: true });
 bookingSchema.virtual("workerName").get(function () {
   return (this.assignedWorker && this.assignedWorker.name) || this.worker || "";
 });
+
+// ── Virtuals: workflow capability flags ───────────────────────────────────────
+// Server-authoritative UI flags derived from the workflow constants, so
+// clients never mirror status lists to decide which actions to offer. The
+// server endpoints still re-validate every action regardless.
+bookingSchema.virtual("canCancel").get(function () {
+  return CANCELLABLE_STATUSES.includes(this.status);
+});
+bookingSchema.virtual("canReschedule").get(function () {
+  return RESCHEDULABLE_STATUSES.includes(this.status);
+});
+
+// Serialize virtuals (workerName, canCancel, canReschedule) with every API
+// response so the flags ride along on all booking payloads. Additive only —
+// no existing field changes. (Note: .lean() queries skip virtuals.)
+bookingSchema.set("toJSON", { virtuals: true });
 
 module.exports = mongoose.model("Booking", bookingSchema);

@@ -11,6 +11,9 @@ const {
   rejectBooking,
   requestQuoteRevision,
   closeBookingRequest,
+  getCancellationPreview,
+  payCancellationFee,
+  cancelBooking,
   rescheduleBooking,
 } = require("../controllers/bookingController");
 
@@ -28,6 +31,11 @@ router.post("/:id/request-revision", auth, requestQuoteRevision);
 
 // After rejection: close the request permanently (terminal)
 router.post("/:id/close", auth, closeBookingRequest);
+
+// Service cancellation workflow (state + time-window driven)
+router.get("/:id/cancellation/preview", auth, getCancellationPreview);
+router.post("/:id/cancellation/pay", auth, payCancellationFee);
+router.post("/:id/cancel", auth, cancelBooking);
 
 // Reschedule booking (change date / time)
 router.patch("/:id/reschedule", auth, rescheduleBooking);

@@ -129,4 +129,17 @@ function emitToUser(userId, event, payload) {
   io.to(roomForUser(String(userId))).emit(event, payload);
 }
 
-module.exports = { initSocket, emitToUser, NOTIFICATION_EVENTS };
+/**
+ * Whether the user currently has at least one connected socket. Lets callers
+ * skip work (e.g. unread-count queries) that only feeds a real-time emit —
+ * emitting to an empty room is a no-op anyway. NOTE: accurate for the default
+ * in-memory adapter (single server instance); if a multi-node socket adapter
+ * (e.g. Redis) is ever introduced, revisit this check.
+ */
+function hasActiveSockets(userId) {
+  if (!io || !userId) return false;
+  const room = io.sockets.adapter.rooms.get(roomForUser(String(userId)));
+  return !!room && room.size > 0;
+}
+
+module.exports = { initSocket, emitToUser, hasActiveSockets, NOTIFICATION_EVENTS };

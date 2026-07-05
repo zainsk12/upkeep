@@ -130,4 +130,9 @@ function validateBookingDateTime(dateStr, timeStr, now = new Date()) {
   return { valid: true, message: "" };
 }
 
-module.exports = { validateBookingDateTime, VALID_TIME_SLOTS, parseSlotToMinutes };
+module.exports = {
+  validateBookingDateTime,
+  VALID_TIME_SLOTS,
+  parseSlotToMinutes,
+  IST_OFFSET_MINUTES,
+};
