@@ -2,37 +2,25 @@
 //
 // Payment collection for workflow fees (currently the cancellation fee).
 //
-// GATEWAY ABSTRACTION: everything provider-specific lives behind the small
-// `gateway` object (createOrder / charge). Today it is an inert MOCK that
-// always succeeds instantly — swapping in Razorpay/Stripe later means
-// implementing the same two methods (order creation server-side, charge
-// verification after the client-side checkout) without touching callers.
-// Payment records are provider-tagged, so mock and real transactions can
-// coexist in the same collection during a migration.
+// GATEWAY ABSTRACTION: everything provider-specific lives in
+// gateways/razorpayGateway (order creation, checkout signature verification).
+// This service owns the ledger and every business rule around it — idempotent
+// initiation, server-side verification, single-use consumption. Payment
+// records are provider-tagged, so rows written by the earlier mock provider
+// and real Razorpay transactions coexist in the same collection.
+//
+// Real-checkout flow (two phases — the customer pays in the browser):
+//   1. initiateCancellationFeePayment → Razorpay order + ledger row ("created")
+//   2. (client) Razorpay Checkout completes
+//   3. confirmCancellationFeePayment  → HMAC signature verified → "paid"
+// A payment only ever counts once it is "paid", so an abandoned checkout
+// leaves nothing but an inert "created" row.
 
-const crypto = require("crypto");
 const Payment = require("../models/Payment");
+const gateway = require("./gateways/razorpayGateway");
 const { PAYMENT_PURPOSE, PAYMENT_STATUS } = Payment;
 
 const CURRENCY = "INR";
-
-const ref = (prefix) => `${prefix}_${crypto.randomBytes(8).toString("hex")}`;
-
-// ── Mock gateway ───────────────────────────────────────────────────────────────
-const mockGateway = {
-  name: "mock",
-  async createOrder({ amount, currency }) {
-    return { orderId: ref("mock_order"), amount, currency };
-  },
-  // Real integrations verify the gateway's signature / payment status here.
-  // The mock approves every charge; the failure branch below still exists and
-  // is exercised the moment a real provider can decline.
-  async charge() {
-    return { success: true, paymentRef: ref("mock_pay") };
-  },
-};
-
-const gateway = mockGateway;
 
 /**
  * Find a paid-but-unconsumed cancellation-fee payment that already covers
@@ -52,24 +40,37 @@ async function findReusableCancellationFeePayment({ bookingId, userId, minAmount
 }
 
 /**
- * Create and process a cancellation-fee payment for a booking.
- * Idempotent: if a paid-but-unconsumed payment already covers the amount, it
- * is returned as-is — no new record, no second charge. This holds for real
- * gateways too: the reusable record is only ever written after a successful
- * charge, so a retry can never double-charge.
- * Returns the persisted Payment doc — check `payment.status`:
- *   "paid"   → charge went through (paidAt/providerPaymentId set)
- *   "failed" → gateway declined; the caller must leave the booking untouched
+ * Phase 1 — create a Razorpay order (+ "created" ledger row) for the
+ * cancellation fee.
+ * Idempotent against double charging: when a paid-but-unconsumed payment
+ * already covers the amount it is returned with alreadyPaid: true and NO new
+ * order is created — the client skips checkout entirely. This is also the
+ * recovery path after an interrupted pay→cancel sequence.
+ * Abandoned attempts (customer closed checkout) simply leave their "created"
+ * row behind; a retry creates a fresh order, and only a verified "paid" row
+ * ever authorises anything.
+ * Returns { payment, alreadyPaid, checkout } — `checkout` (null when
+ * alreadyPaid) carries what Razorpay Checkout needs client-side; its `amount`
+ * is in paise, per Razorpay's contract.
  */
-async function collectCancellationFee({ booking, userId, amount }) {
+async function initiateCancellationFeePayment({ booking, userId, amount }) {
   const existing = await findReusableCancellationFeePayment({
     bookingId: booking._id,
     userId,
     minAmount: amount,
   });
-  if (existing) return existing;
+  if (existing) return { payment: existing, alreadyPaid: true, checkout: null };
 
-  const order = await gateway.createOrder({ amount, currency: CURRENCY });
+  const order = await gateway.createOrder({
+    amount,
+    currency: CURRENCY,
+    receipt: booking.bookingId || booking._id.toString(),
+    notes: {
+      purpose: PAYMENT_PURPOSE.CANCELLATION_FEE,
+      bookingRef: booking.bookingId || "",
+      bookingId: booking._id.toString(),
+    },
+  });
 
   const payment = await Payment.create({
     bookingId: booking._id,
@@ -83,18 +84,92 @@ async function collectCancellationFee({ booking, userId, amount }) {
     meta: { bookingRef: booking.bookingId || "", service: booking.service },
   });
 
-  const result = await gateway.charge({ orderId: order.orderId, amount });
+  return {
+    payment,
+    alreadyPaid: false,
+    checkout: {
+      keyId: gateway.getKeyId(),
+      orderId: order.orderId,
+      amount: order.amount,
+      currency: order.currency,
+    },
+  };
+}
 
-  if (result.success) {
-    payment.status = PAYMENT_STATUS.PAID;
-    payment.paidAt = new Date();
-    payment.providerPaymentId = result.paymentRef;
-  } else {
-    payment.status = PAYMENT_STATUS.FAILED;
-    payment.meta = { ...payment.meta, failureReason: result.reason || "declined" };
+/**
+ * Phase 2 — verify a Razorpay Checkout result and mark the ledger row paid.
+ * Never trusts the client: the order must belong to this exact booking + user,
+ * and the signature must verify against the key secret. Retry-safe: confirming
+ * an already-verified payment returns it as-is (the checkout callback may fire
+ * twice, or the client may resend after a lost response).
+ * Returns { ok, payment, message, declined } — never throws on bad input.
+ *   ok: true      → payment is "paid" (paidAt/verifiedAt/provider ids set)
+ *   declined: true → a real attempt failed signature verification (the
+ *                    "gateway declined" analog — callers may notify on it);
+ *                    other failures are bad/foreign requests and stay silent.
+ * On failure `payment` is still returned when the order was found, so callers
+ * can attribute the failure without a second lookup.
+ */
+async function confirmCancellationFeePayment({
+  bookingId,
+  userId,
+  razorpayOrderId,
+  razorpayPaymentId,
+  razorpaySignature,
+}) {
+  const fail = (message, payment = null, declined = false) =>
+    ({ ok: false, payment, message, declined });
+
+  if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
+    return fail("Missing payment verification details.");
   }
+
+  const payment = await Payment.findOne({
+    provider: gateway.name,
+    providerOrderId: razorpayOrderId,
+    purpose: PAYMENT_PURPOSE.CANCELLATION_FEE,
+  });
+  if (!payment) return fail("Payment order not found.");
+  if (payment.bookingId.toString() !== bookingId.toString())
+    return fail("Payment does not belong to this booking.");
+  if (payment.userId.toString() !== userId.toString())
+    return fail("Payment does not belong to this account.");
+
+  if (payment.status === PAYMENT_STATUS.PAID) {
+    // Idempotent replay of the same checkout result — same payment, same row.
+    if (payment.providerPaymentId === razorpayPaymentId) {
+      return { ok: true, payment, message: "", declined: false };
+    }
+    return fail("This payment order has already been settled.", payment);
+  }
+  if (payment.status === PAYMENT_STATUS.FAILED) {
+    return fail("This payment attempt failed. Please start the payment again.", payment);
+  }
+
+  const valid = gateway.verifyPaymentSignature({
+    orderId: razorpayOrderId,
+    paymentId: razorpayPaymentId,
+    signature: razorpaySignature,
+  });
+  if (!valid) {
+    payment.status = PAYMENT_STATUS.FAILED;
+    payment.meta = { ...payment.meta, failureReason: "signature_verification_failed" };
+    await payment.save();
+    return fail(
+      "Payment verification failed. Your booking has not been cancelled.",
+      payment,
+      true
+    );
+  }
+
+  payment.status = PAYMENT_STATUS.PAID;
+  payment.paidAt = new Date();
+  payment.verifiedAt = new Date();
+  payment.providerPaymentId = razorpayPaymentId;
+  payment.providerSignature = razorpaySignature;
   await payment.save();
-  return payment;
+
+  return { ok: true, payment, message: "", declined: false };
 }
 
 /**
@@ -138,8 +213,12 @@ async function consumePayment(paymentId) {
 }
 
 module.exports = {
-  collectCancellationFee,
+  initiateCancellationFeePayment,
+  confirmCancellationFeePayment,
   verifyCancellationFeePayment,
   findReusableCancellationFeePayment,
   consumePayment,
+  // Controllers gate payment endpoints on this without ever importing the
+  // gateway directly — provider specifics stay encapsulated here.
+  isPaymentGatewayConfigured: gateway.isConfigured,
 };

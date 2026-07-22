@@ -13,6 +13,7 @@ const {
   closeBookingRequest,
   getCancellationPreview,
   payCancellationFee,
+  verifyCancellationPayment,
   cancelBooking,
   rescheduleBooking,
 } = require("../controllers/bookingController");
@@ -33,8 +34,11 @@ router.post("/:id/request-revision", auth, requestQuoteRevision);
 router.post("/:id/close", auth, closeBookingRequest);
 
 // Service cancellation workflow (state + time-window driven)
+// Fee collection is two-phase (Razorpay Checkout): pay creates the order,
+// pay/verify confirms the checkout signature, cancel finalises.
 router.get("/:id/cancellation/preview", auth, getCancellationPreview);
 router.post("/:id/cancellation/pay", auth, payCancellationFee);
+router.post("/:id/cancellation/pay/verify", auth, verifyCancellationPayment);
 router.post("/:id/cancel", auth, cancelBooking);
 
 // Reschedule booking (change date / time)

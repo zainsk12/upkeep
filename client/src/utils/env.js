@@ -53,7 +53,7 @@ if (missing.length > 0) {
 //   3. Development → "" → relative /api/* paths via the Vite proxy (vite.config.js).
 // Any trailing slash or accidental "/api" suffix is stripped so requests resolve
 // to exactly `<origin>/api/...` (guards against trailing-slash / double-/api bugs).
-const PROD_API_FALLBACK = "https://upkeep-production-f476.up.railway.app";
+const PROD_API_FALLBACK = "https://upkeep-0hq4.onrender.com";
 
 function resolveApiBaseUrl() {
   const raw = (import.meta.env.VITE_API_URL || "").trim();
@@ -96,6 +96,12 @@ const env = {
 
   // ── Google reCAPTCHA v3 (booking confirmation) ────────────────────────────
   recaptchaSiteKey: import.meta.env.VITE_RECAPTCHA_SITE_KEY,
+
+  // ── Razorpay Checkout (cancellation fee — Test Mode) ──────────────────────
+  // Publishable key id only (rzp_test_…) — NOT a secret; the key secret lives
+  // exclusively on the server. OPTIONAL because the pay endpoint returns the
+  // key id alongside the order; this env value is the client-side fallback.
+  razorpayKeyId: import.meta.env.VITE_RAZORPAY_KEY_ID || "",
 };
 
 export default env;

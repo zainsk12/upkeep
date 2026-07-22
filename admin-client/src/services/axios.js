@@ -11,7 +11,7 @@ import axios from "axios";
 //      This fallback makes the admin panel work regardless of the dashboard var.
 //   3. Development → "" → relative /api/* paths via the Vite proxy (vite.config.js).
 // Trailing slash / accidental "/api" suffix are stripped to avoid double-/api bugs.
-const PROD_API_FALLBACK = "https://upkeep-production-f476.up.railway.app";
+const PROD_API_FALLBACK = "https://upkeep-0hq4.onrender.com";
 const rawBase = (import.meta.env.VITE_API_URL || "").trim();
 const baseURL = (rawBase || (import.meta.env.PROD ? PROD_API_FALLBACK : ""))
   .replace(/\/+$/, "")

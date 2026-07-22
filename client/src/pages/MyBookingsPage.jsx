@@ -20,9 +20,12 @@ import {
   closeBookingRequest,
   getCancellationPreview,
   payCancellationFee,
+  verifyCancellationPayment,
   cancelBooking,
 } from "../services/bookingApi";
 import { executeRecaptcha } from "../services/recaptcha";
+import { openRazorpayCheckout } from "../services/razorpayCheckout";
+import { useAuth } from "../context/AuthContext";
 import RescheduleModal from "../components/RescheduleModal";
 import { submitReview, fetchMyReviewedBookingIds } from "../services/reviewApi";
 import BookingSectionAccordion from "../components/BookingSectionAccordion";
@@ -609,6 +612,7 @@ function CloseRequestModal({ booking, onClose, onConfirm, loading }) {
    The window/fee shown come from the server preview endpoint; the final cancel
    call re-validates everything server-side. */
 function CancelBookingModal({ booking, onClose, onCancelled }) {
+  const { user } = useAuth(); // prefills Razorpay Checkout (name/email/contact)
   const [preview,    setPreview]    = useState(null);   // server cancellation context
   const [loadError,  setLoadError]  = useState(null);
   const [step,       setStep]       = useState("confirm"); // confirm | reason | pay
@@ -664,14 +668,46 @@ function CancelBookingModal({ booking, onClose, onCancelled }) {
     }
   };
 
-  // Charge-window path: collect the fee, then finalise the cancellation.
-  // If payment fails the booking stays active and nothing else happens.
+  // Charge-window path: create the Razorpay order, run Checkout, verify the
+  // result server-side, then finalise the cancellation. If checkout is closed
+  // or verification fails, the booking stays active and nothing else happens.
   const handlePayAndCancel = async () => {
     setSubmitting(true);
     let paymentId = null;
     try {
       const payRes = await payCancellationFee(booking._id);
-      paymentId = payRes.data.payment.id;
+      const { payment, alreadyPaid, checkout } = payRes.data;
+
+      if (alreadyPaid) {
+        // Recovery: an earlier attempt already paid the fee — skip checkout
+        // and reuse that payment (server-verified, single-use).
+        paymentId = payment.id;
+      } else {
+        let checkoutResult;
+        try {
+          checkoutResult = await openRazorpayCheckout({
+            ...checkout,
+            name: "UpKeep by Austrum",
+            description: `Cancellation fee — ${booking.service}`,
+            prefill: {
+              name:    user?.name  || "",
+              email:   user?.email || "",
+              contact: user?.phone || booking.phone || "",
+            },
+          });
+        } catch (err) {
+          // Checkout dismissed / script failed — nothing was charged.
+          toast.error(
+            err?.code === "dismissed"
+              ? "Payment was not completed. Your booking is still active."
+              : err?.message || "Payment could not be started. Your booking is still active."
+          );
+          setSubmitting(false);
+          return;
+        }
+        const verifyRes = await verifyCancellationPayment(booking._id, checkoutResult);
+        paymentId = verifyRes.data.payment.id;
+      }
     } catch (err) {
       toast.error(
         err?.response?.data?.message ||

@@ -33,12 +33,13 @@ const {
 const { getHoursRemaining, hasSlotPassed } = require("../utils/scheduleTime");
 const { getCancellationRules } = require("../config/businessRules");
 const {
-  collectCancellationFee,
+  initiateCancellationFeePayment,
+  confirmCancellationFeePayment,
   verifyCancellationFeePayment,
   findReusableCancellationFeePayment,
   consumePayment,
+  isPaymentGatewayConfigured,
 } = require("../services/paymentService");
-const { PAYMENT_STATUS } = require("../models/Payment");
 
 // ── POST /api/bookings ─────────────────────────────────────────────────────────
 const createBooking = async (req, res) => {
@@ -388,10 +389,11 @@ const closeBookingRequest = async (req, res) => {
 // ── Service cancellation workflow ─────────────────────────────────────────────
 // State-driven customer cancellation. Behaviour depends on the booking status
 // and the time remaining until the scheduled slot (see constants/cancellation-
-// Workflow.js + config/businessRules.js). Three endpoints:
-//   GET  /:id/cancellation/preview — window/fee context to drive the UI
-//   POST /:id/cancellation/pay     — collect the fee (only when one applies)
-//   POST /:id/cancel               — finalise the cancellation
+// Workflow.js + config/businessRules.js). Four endpoints:
+//   GET  /:id/cancellation/preview    — window/fee context to drive the UI
+//   POST /:id/cancellation/pay        — create the Razorpay fee order
+//   POST /:id/cancellation/pay/verify — verify the checkout result → fee paid
+//   POST /:id/cancel                  — finalise the cancellation
 
 /**
  * Shared status guard for the cancellation endpoints. Returns a
@@ -474,9 +476,14 @@ const getCancellationPreview = async (req, res) => {
 };
 
 // ── POST /api/bookings/:id/cancellation/pay ───────────────────────────────────
-// Collects the cancellation fee when one applies. On success the booking is
-// STILL ACTIVE — the client immediately calls POST /:id/cancel with the
-// returned paymentId to finalise. On gateway failure nothing changes.
+// Phase 1 of fee collection: creates a Razorpay order for the cancellation fee
+// and returns the `checkout` payload the client passes to Razorpay Checkout.
+// Nothing is charged here and the booking is untouched. After checkout the
+// client calls POST /:id/cancellation/pay/verify, then POST /:id/cancel.
+// Recovery/idempotency: if a paid-but-unconsumed fee payment already covers
+// the amount (an earlier attempt was interrupted before cancelling), it is
+// returned with alreadyPaid: true — the client skips checkout and goes
+// straight to the cancel call with the returned payment id.
 const payCancellationFee = async (req, res) => {
   try {
     if (!isValidId(req.params.id))
@@ -500,27 +507,83 @@ const payCancellationFee = async (req, res) => {
       return res.status(400).json({ message: "No cancellation fee is due for this booking." });
     }
 
-    const payment = await collectCancellationFee({
+    if (!isPaymentGatewayConfigured()) {
+      return res.status(503).json({
+        message: "Payments are temporarily unavailable. Please try again later.",
+      });
+    }
+
+    const { payment, alreadyPaid, checkout } = await initiateCancellationFeePayment({
       booking,
       userId: req.user._id,
       amount: context.fee,
     });
 
-    if (payment.status !== PAYMENT_STATUS.PAID) {
-      // Gateway declined — booking stays active, nothing else changes.
-      res.status(402).json({
-        message: "Payment failed. Your booking has not been cancelled — please try again.",
-        paymentStatus: "failed",
-      });
-      notifyCancellationFeeFailed(booking, context.fee).catch((e) =>
-        console.error("[NOTIF] payment_failed emit failed:", e.message)
-      );
+    res.json({
+      message: alreadyPaid
+        ? "Cancellation fee already paid."
+        : "Payment order created.",
+      payment: { id: payment._id, amount: payment.amount, status: payment.status },
+      alreadyPaid,
+      checkout, // null when alreadyPaid; else { keyId, orderId, amount (paise), currency }
+      fee: context.fee,
+    });
+  } catch (err) {
+    console.error("payCancellationFee error:", err.message);
+    res.status(500).json({ message: "Server error. Please try again." });
+  }
+};
+
+// ── POST /api/bookings/:id/cancellation/pay/verify ────────────────────────────
+// Phase 2 of fee collection: verifies the Razorpay Checkout result
+// ({ razorpay_order_id, razorpay_payment_id, razorpay_signature }) server-side
+// and marks the ledger row paid. The booking is STILL ACTIVE afterwards — the
+// client then calls POST /:id/cancel with the returned payment id, exactly as
+// before. Verification failure leaves the booking untouched (402).
+const verifyCancellationPayment = async (req, res) => {
+  try {
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } =
+      req.body || {};
+
+    if (!isValidId(req.params.id))
+      return res.status(400).json({ message: "Invalid booking ID." });
+
+    const booking = await Booking.findById(req.params.id);
+    if (!booking) return res.status(404).json({ message: "Booking not found." });
+
+    if (booking.userId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: "Not authorised." });
+    }
+
+    // Deliberately no cancellationBlocker here: the money has already moved at
+    // the gateway, so the ledger must record the truth even if the booking's
+    // state drifted while checkout was open. The follow-up cancel call re-runs
+    // every guard and remains the only place a cancellation can happen.
+    const verdict = await confirmCancellationFeePayment({
+      bookingId: booking._id,
+      userId: req.user._id,
+      razorpayOrderId: razorpay_order_id,
+      razorpayPaymentId: razorpay_payment_id,
+      razorpaySignature: razorpay_signature,
+    });
+
+    if (!verdict.ok) {
+      res.status(402).json({ message: verdict.message, paymentStatus: "failed" });
+      // Notify only genuine declined attempts (signature failure) — bad or
+      // foreign requests must not spam the customer.
+      if (verdict.declined && verdict.payment) {
+        notifyCancellationFeeFailed(booking, verdict.payment.amount).catch((e) =>
+          console.error("[NOTIF] payment_failed emit failed:", e.message)
+        );
+      }
       return;
     }
 
+    const payment = verdict.payment;
+
     // Append-only ledger entry on the timeline — the fee was genuinely paid,
-    // even if the follow-up cancel call were to fail. A retried pay call may
-    // reuse an already-paid payment (idempotency), so don't log it twice.
+    // even if the follow-up cancel call were to fail. A replayed verify call
+    // returns the same payment (idempotency), so don't log it twice.
     const alreadyLogged = (booking.history || []).some(
       (h) =>
         h.event === "cancellation_fee_paid" &&
@@ -537,7 +600,6 @@ const payCancellationFee = async (req, res) => {
     res.json({
       message: "Payment successful.",
       payment: { id: payment._id, amount: payment.amount, status: payment.status },
-      fee: context.fee,
     });
 
     // Reused (already-notified) payments must not trigger a second notification.
@@ -547,7 +609,7 @@ const payCancellationFee = async (req, res) => {
       );
     }
   } catch (err) {
-    console.error("payCancellationFee error:", err.message);
+    console.error("verifyCancellationPayment error:", err.message);
     res.status(500).json({ message: "Server error. Please try again." });
   }
 };
@@ -783,6 +845,7 @@ module.exports = {
   closeBookingRequest,
   getCancellationPreview,
   payCancellationFee,
+  verifyCancellationPayment,
   cancelBooking,
   rescheduleBooking,
 };

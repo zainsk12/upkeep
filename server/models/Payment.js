@@ -11,9 +11,11 @@
 const mongoose = require("mongoose");
 
 // Canonical payment vocabulary — single source of truth for the schema enums
-// and every consumer (paymentService today, the Razorpay integration later).
-// Extend these when new charge types / gateways land (e.g. NO_SHOW_FEE,
-// "razorpay"). Existing records remain valid — enums only gate new writes.
+// and every consumer (paymentService + the Razorpay gateway).
+// Extend these when new charge types / gateways land (e.g. NO_SHOW_FEE).
+// Existing records remain valid — enums only gate new writes, which is why
+// "mock" stays listed: rows written by the retired mock provider are
+// historical ledger entries and must keep validating.
 const PAYMENT_PURPOSE = {
   CANCELLATION_FEE: "cancellation_fee",
 };
@@ -22,7 +24,7 @@ const PAYMENT_STATUS = {
   PAID:    "paid",
   FAILED:  "failed",
 };
-const PAYMENT_PROVIDERS = ["mock"];
+const PAYMENT_PROVIDERS = ["mock", "razorpay"];
 
 const paymentSchema = new mongoose.Schema(
   {
@@ -33,10 +35,17 @@ const paymentSchema = new mongoose.Schema(
     amount:   { type: Number, required: true, min: 0 },
     currency: { type: String, default: "INR" },
 
-    // Gateway identity — swap "mock" for a real provider without a migration.
-    provider:          { type: String, enum: PAYMENT_PROVIDERS, default: "mock" },
-    providerOrderId:   { type: String, default: "", trim: true },
+    // Gateway identity — paymentService always sets this explicitly (currently
+    // "razorpay"); "mock" appears only on historical rows.
+    provider:          { type: String, enum: PAYMENT_PROVIDERS, required: true },
+    // Razorpay: order_id / payment_id from Checkout. Indexed lookup key for
+    // the confirm (verify) phase.
+    providerOrderId:   { type: String, default: "", trim: true, index: true },
     providerPaymentId: { type: String, default: "", trim: true },
+    // Razorpay checkout signature that passed HMAC verification, and when it
+    // was verified server-side — audit trail for the "paid" transition.
+    providerSignature: { type: String, default: "", trim: true },
+    verifiedAt:        { type: Date, default: null },
 
     status:     { type: String, enum: Object.values(PAYMENT_STATUS), default: PAYMENT_STATUS.CREATED },
     paidAt:     { type: Date, default: null },

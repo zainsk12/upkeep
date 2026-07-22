@@ -30,10 +30,20 @@ export const closeBookingRequest = (id) =>
 export const getCancellationPreview = (id) =>
   api.get(`/api/bookings/${id}/cancellation/preview`);
 
-// Collect the cancellation fee (charge window only). Returns { payment }.
-// The booking is NOT cancelled by this call — pass payment.id to cancelBooking.
+// Fee step 1 (charge window only): create the Razorpay payment order.
+// Returns { payment, alreadyPaid, checkout, fee }. When alreadyPaid (fee was
+// collected by an earlier interrupted attempt) skip checkout and pass
+// payment.id straight to cancelBooking; otherwise open Razorpay Checkout with
+// the `checkout` payload. The booking is NOT cancelled by this call.
 export const payCancellationFee = (id) =>
   api.post(`/api/bookings/${id}/cancellation/pay`);
+
+// Fee step 2: verify the Razorpay Checkout result server-side. `payload` is
+// the { razorpay_payment_id, razorpay_order_id, razorpay_signature } object
+// the checkout handler receives. Returns { payment } — pass payment.id to
+// cancelBooking to finalise. The booking is still NOT cancelled by this call.
+export const verifyCancellationPayment = (id, payload) =>
+  api.post(`/api/bookings/${id}/cancellation/pay/verify`, payload);
 
 // Finalise the cancellation — requires a reason (one of the server's
 // predefined reasons, as returned by the preview endpoint), a comment when
